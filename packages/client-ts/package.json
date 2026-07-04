@@ -1,0 +1,41 @@
+{
+  "name": "@shankit/client",
+  "version": "0.1.0",
+  "description": "Typed TypeScript consumer for shankit agent event streams over SSE/HTTP. Consumes agent runs; does not run agents.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eeshankulk1/shankit.git",
+    "directory": "packages/client-ts"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "sse",
+    "streaming"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
