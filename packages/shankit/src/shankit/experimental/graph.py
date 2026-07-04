@@ -154,6 +154,53 @@ class Network:
             working, context=context, thread_id=thread_id, steps_run=list(checkpoint.steps_run)
         )
 
+    async def recover(
+        self,
+        thread_id: str,
+        *,
+        context: Any = None,
+        retry_in_flight: bool = False,
+    ) -> NetworkResult:
+        """Re-enter a ``running`` thread after a crash or a step failure.
+
+        The state is re-loaded from the last checkpoint and the router loop
+        continues; because routing is a function of state, the router will
+        re-derive whatever step never completed.
+
+        If the checkpoint has an ``in_flight`` step, the process died (or the
+        step raised) *mid-step* — its side effects may have partially
+        happened, so re-running it is only safe if the step is idempotent.
+        This method refuses that case unless ``retry_in_flight=True``, by
+        which the caller asserts exactly that.
+
+        Threads that are ``interrupted`` resume via :meth:`resume` (they are
+        waiting on input, not crashed); ``done`` threads have nothing to
+        recover.
+        """
+        if self.checkpointer is None:
+            raise ShankitError(f"Network {self.name!r} has no checkpointer to recover from.")
+        checkpoint = await self.checkpointer.load(thread_id)
+        if checkpoint is None:
+            raise ShankitError(f"No checkpoint found for thread {thread_id!r}.")
+        if checkpoint.status == "interrupted":
+            raise ShankitError(
+                f"Thread {thread_id!r} is awaiting input, not crashed; use resume()."
+            )
+        if checkpoint.status == "done":
+            raise ShankitError(f"Thread {thread_id!r} already finished; nothing to recover.")
+        if checkpoint.in_flight is not None and not retry_in_flight:
+            raise ShankitError(
+                f"Thread {thread_id!r} died while step {checkpoint.in_flight!r} was in "
+                "flight; its side effects may have partially happened. Pass "
+                "retry_in_flight=True to re-run it if (and only if) the step is idempotent."
+            )
+        return await self._drive(
+            dict(checkpoint.state),
+            context=context,
+            thread_id=thread_id,
+            steps_run=list(checkpoint.steps_run),
+        )
+
     async def _drive(
         self,
         state: dict[str, Any],
@@ -191,6 +238,10 @@ class Network:
                     f"Router of network {self.name!r} returned unknown step "
                     f"{decision!r}. Steps: {known}."
                 )
+            # Write-ahead marker: if the process dies (or the step raises)
+            # past this point, the checkpoint records which step was in
+            # flight so recover() can tell "between steps" from "mid-step".
+            await self._save(thread_id, state, "running", None, steps_run, in_flight=decision)
             update = await _maybe_await(step(state, context))
             if update is not None:
                 if not isinstance(update, dict):
@@ -214,6 +265,7 @@ class Network:
         status: str,
         interrupt: Optional[InterruptInfo],
         steps_run: list[str],
+        in_flight: Optional[str] = None,
     ) -> None:
         if self.checkpointer is None or thread_id is None:
             return
@@ -224,6 +276,7 @@ class Network:
                 status=status,  # type: ignore[arg-type]
                 interrupt=interrupt,
                 steps_run=list(steps_run),
+                in_flight=in_flight,
             ),
         )
 

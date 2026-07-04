@@ -161,3 +161,91 @@ async def test_network_as_tool_interrupt_reported():
     result = await source.execute("act-with-approval", {"task": "x"})
     assert result.is_error
     assert "paused for human input" in result.content
+
+
+# ------------------------------------------------------------ crash recovery
+
+
+async def test_recover_after_crash_between_steps():
+    """A 'running' checkpoint with no in-flight step re-enters cleanly."""
+    from shankit.durability import Checkpoint
+
+    checkpointer = InMemoryCheckpointer()
+    net = approval_network(checkpointer)
+    # Simulate a process that died after "draft" completed but before the
+    # router ran again: exactly what the post-step checkpoint records.
+    await checkpointer.save(
+        "t-crash",
+        Checkpoint(
+            state={"task": "email bob", "draft": "Draft for: email bob", "approval": True},
+            status="running",
+            steps_run=["draft"],
+        ),
+    )
+    result = await net.recover("t-crash")
+    assert result.status == "done"
+    assert result.state["sent"] is True
+    assert result.steps_run == ["draft", "act"]
+
+
+async def test_step_failure_leaves_in_flight_marker_and_recover_retries():
+    checkpointer = InMemoryCheckpointer()
+    attempts = {"count": 0}
+
+    async def flaky_act(state, context):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("transient provider outage")
+        return {"sent": True}
+
+    net = Network(
+        name="flaky",
+        steps={"act": flaky_act},
+        router=lambda s: "act" if "sent" not in s else None,
+        checkpointer=checkpointer,
+    )
+    with pytest.raises(RuntimeError, match="transient"):
+        await net.run({"task": "x"}, thread_id="t-flaky")
+
+    saved = await checkpointer.load("t-flaky")
+    assert saved.status == "running"
+    assert saved.in_flight == "act"
+
+    # Ambiguous by default: the failed step may have had side effects.
+    with pytest.raises(ShankitError, match="in ?flight|idempotent"):
+        await net.recover("t-flaky")
+
+    result = await net.recover("t-flaky", retry_in_flight=True)
+    assert result.status == "done"
+    assert result.state["sent"] is True
+    assert attempts["count"] == 2
+
+
+async def test_in_flight_cleared_after_successful_step():
+    checkpointer = InMemoryCheckpointer()
+    net = approval_network(checkpointer)
+    await net.run({"task": "x"}, thread_id="t-clear")  # pauses at the interrupt
+    saved = await checkpointer.load("t-clear")
+    assert saved.in_flight is None
+    assert saved.status == "interrupted"
+
+
+async def test_recover_wrong_states():
+    checkpointer = InMemoryCheckpointer()
+    net = approval_network(checkpointer)
+
+    with pytest.raises(ShankitError, match="No checkpoint"):
+        await net.recover("missing")
+
+    await net.run({"task": "x"}, thread_id="t-int")  # interrupted
+    with pytest.raises(ShankitError, match="use resume"):
+        await net.recover("t-int")
+
+    done = await net.resume("t-int", value=False)
+    assert done.status == "done"
+    with pytest.raises(ShankitError, match="already finished"):
+        await net.recover("t-int")
+
+    no_cp = approval_network()
+    with pytest.raises(ShankitError, match="no checkpointer"):
+        await no_cp.recover("t-int")

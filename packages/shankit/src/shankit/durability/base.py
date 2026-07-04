@@ -34,12 +34,20 @@ class InterruptInfo(BaseModel):
 
 
 class Checkpoint(BaseModel):
-    """A durable snapshot of a run at a router boundary."""
+    """A durable snapshot of a run at a router boundary.
+
+    ``in_flight`` is the write-ahead marker for crash recovery: it names the
+    step that was executing when the checkpoint was written. Between steps it
+    is ``None``. If a process dies and leaves a ``running`` checkpoint with
+    ``in_flight`` set, that step may have partially executed its side
+    effects — recovery treats it as ambiguous (see ``Network.recover``).
+    """
 
     state: dict[str, Any] = Field(default_factory=dict)
     status: Literal["running", "interrupted", "done"] = "running"
     interrupt: Optional[InterruptInfo] = None
     steps_run: list[str] = Field(default_factory=list)
+    in_flight: Optional[str] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 

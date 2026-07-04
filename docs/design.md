@@ -428,9 +428,15 @@ where the original text had a gap (flagged ⚠):
    sanitized shape.
 7. **Checkpoint state is JSON** (enforced by the shipped stores on save), and
    the network checkpoints after every completed step, at interrupts, and at
-   done. Durable stores shipped: in-memory and SQLite. Resume is from
-   `interrupted` threads only; crash-resume of `running` threads remains the
-   documented fast-follow (§7.1).
+   done. Durable stores shipped: in-memory and SQLite. `resume()` handles
+   `interrupted` threads (HITL); `recover()` re-enters `running` threads
+   after a crash or step failure, using a write-ahead `in_flight` marker to
+   distinguish "died between steps" (safe — the router re-derives the next
+   step from state) from "died mid-step" (side effects ambiguous — refused
+   unless the caller asserts idempotency with `retry_in_flight=True`). This
+   is the minimal principled slice of §7.1's resume-after-restart
+   fast-follow; richer semantics (per-step idempotency keys, retry policies)
+   stay open until real usage demands them.
 8. **TS types are generated, not mirrored**: `scripts/generate_ts_events.py`
    emits `@shankit/client`'s event types from the pydantic models; CI fails
    on drift (§8).
