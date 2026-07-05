@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shankit"
+version = "0.1.0"
+description = "An AI agent framework that takes the integration seam as seriously as the agent loop."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "shankit contributors" }]
+keywords = ["ai", "agents", "llm", "tools", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40.0"]
+openai = ["openai>=1.40.0"]
+mcp = ["mcp>=1.2.0"]
+otel = ["opentelemetry-api>=1.25.0"]
+all = ["shankit[anthropic,openai,mcp,otel]"]
+
+[project.urls]
+Homepage = "https://github.com/eeshankulk1/shankit"
+Documentation = "https://github.com/eeshankulk1/shankit/blob/main/docs/design.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "anthropic>=0.40.0",
+    "openai>=1.40.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shankit"]

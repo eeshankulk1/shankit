@@ -1,6 +1,7 @@
 # Framework Design
 
-> **Status:** Planning / pre-implementation. This is the living design spec for
+> **Status:** v1 implemented (see §14 for implementation notes and small
+> corrections made during the build). This is the living design spec for
 > an open-source AI agent framework being harvested from throu.
 >
 > **How to read this doc.** It is a **decision record, not an implementation
@@ -390,3 +391,55 @@ of itself.**
 *Resolved and folded in:* core primitives (§3), connector contract (§4),
 file-first format (§5), graph/network escape hatch + validation path (§9),
 durability contract shape (§7.1).
+
+---
+
+## 14. v1 implementation notes (decision record addendum)
+
+The v1 build honors every committed decision above. Where the doc left
+latitude, these are the load-bearing choices — plus a few small corrections
+where the original text had a gap (flagged ⚠):
+
+1. **⚠ The event stream gained an `error` terminal event.** §6 listed
+   "text deltas, steps, sources, usage, done" — but a stream with no failure
+   signal can't be consumed safely over SSE (the transport just ends). A
+   stream now terminates with exactly one of `done` | `error`.
+2. **⚠ `str` counts as an output type.** §3.2/§5 read as if absence of a
+   schema forbids `run()` entirely. v1 allows `run(output_type=str)`: the
+   final assistant text as a (trivially) typed deliverable. Without this,
+   agents-as-tools (§3.4) could not obtain a sub-agent's text answer through
+   the structured path, and evals couldn't target schema-less agents. The
+   spirit is kept: no schema and no `output_type=` ⇒ `run()` refuses and
+   points to `stream()`.
+3. **Model specs require a provider prefix** (`anthropic:...`, `openai:...`);
+   there is no silent default vendor — neutrality (§1.3) over convenience.
+   `register_provider()` extends the prefix set; passing a `ModelClient`
+   bypasses it entirely.
+4. **File refs disambiguate on the colon**: `module:attribute` ⇒ Python
+   import; bare `name` ⇒ explicit registry (§5). `output_schema` must be an
+   import ref (a type is always importable).
+5. **The experimental flag is structural**: the graph lives at
+   `shankit.experimental.graph`; stabilizing it *is* moving it out of that
+   namespace.
+6. **Uniform error contract**: tools raise `ToolError("model-visible text")`
+   for controlled failures; any other exception is sanitized to a generic
+   message (full traceback logged) — the loop applies this in one choke
+   point regardless of tool source. Sub-agent failures surface as the same
+   sanitized shape.
+7. **Checkpoint state is JSON** (enforced by the shipped stores on save), and
+   the network checkpoints after every completed step, at interrupts, and at
+   done. Durable stores shipped: in-memory and SQLite. `resume()` handles
+   `interrupted` threads (HITL); `recover()` re-enters `running` threads
+   after a crash or step failure, using a write-ahead `in_flight` marker to
+   distinguish "died between steps" (safe — the router re-derives the next
+   step from state) from "died mid-step" (side effects ambiguous — refused
+   unless the caller asserts idempotency with `retry_in_flight=True`). This
+   is the minimal principled slice of §7.1's resume-after-restart
+   fast-follow; richer semantics (per-step idempotency keys, retry policies)
+   stay open until real usage demands them.
+8. **TS types are generated, not mirrored**: `scripts/generate_ts_events.py`
+   emits `@shankit/client`'s event types from the pydantic models; CI fails
+   on drift (§8).
+9. **Naming (§13) remains open** — everything ships under the working name
+   `shankit` / `@shankit/client`; renaming before first release is a
+   find-replace plus package metadata.

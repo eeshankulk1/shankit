@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # setup-uv already created and activated .venv for the requested
+      # Python; install into it and call its binaries directly (`uv run`
+      # would try to sync the virtual workspace root instead).
+      - name: Install packages
+        run: |
+          uv pip install -e packages/shankit -e packages/shankit-connectors \
+            pytest pytest-asyncio anthropic openai ruff
+      - name: Lint
+        run: .venv/bin/ruff check packages scripts
+      - name: Core tests
+        run: .venv/bin/pytest packages/shankit/tests -q
+      - name: Connector tests
+        run: .venv/bin/pytest packages/shankit-connectors/tests -q
+      - name: Generated TS event types are in sync
+        run: .venv/bin/python scripts/generate_ts_events.py --check
+
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and test @shankit/client
+        working-directory: packages/client-ts
+        run: |
+          npm install
+          npm test

@@ -1,0 +1,22 @@
+# Virtual workspace root — the publishable packages live under packages/.
+
+[tool.uv.workspace]
+members = ["packages/shankit", "packages/shankit-connectors"]
+
+# Lets `pytest packages/...` run from the repo root (CI does this); the same
+# settings exist in each package for standalone runs.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["packages/client-ts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # long lines in docstrings/messages; formatter handles code
+    "UP007", # keep typing.Optional/Union in public signatures for clarity
+    "UP045",
+]
