@@ -38,4 +38,4 @@ testpaths = ["tests"]
 packages = ["src/shankit_connectors"]
 
 [tool.uv.sources]
-shankit = { path = "../shankit", editable = true }
+shankit = { workspace = true }
