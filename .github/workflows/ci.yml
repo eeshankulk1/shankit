@@ -16,19 +16,21 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # setup-uv already created and activated .venv for the requested
+      # Python; install into it and call its binaries directly (`uv run`
+      # would try to sync the virtual workspace root instead).
       - name: Install packages
         run: |
-          uv venv
           uv pip install -e packages/shankit -e packages/shankit-connectors \
             pytest pytest-asyncio anthropic openai ruff
       - name: Lint
-        run: uv run ruff check packages scripts
+        run: .venv/bin/ruff check packages scripts
       - name: Core tests
-        run: uv run pytest packages/shankit/tests -q
+        run: .venv/bin/pytest packages/shankit/tests -q
       - name: Connector tests
-        run: uv run pytest packages/shankit-connectors/tests -q
+        run: .venv/bin/pytest packages/shankit-connectors/tests -q
       - name: Generated TS event types are in sync
-        run: uv run python scripts/generate_ts_events.py --check
+        run: .venv/bin/python scripts/generate_ts_events.py --check
 
   typescript:
     runs-on: ubuntu-latest
