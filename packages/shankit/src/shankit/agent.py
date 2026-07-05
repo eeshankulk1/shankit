@@ -14,6 +14,7 @@ stream (or be run with an explicit ``output_type=``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -51,6 +52,7 @@ from .messages import (
     ToolResultBlock,
     ToolUseBlock,
     assistant_text,
+    coerce_message,
     user_message,
 )
 from .models.base import (
@@ -179,10 +181,17 @@ class Agent:
 
     @overload
     async def run(
-        self, prompt: str, *, context: Any = None, output_type: type[OutputT]
+        self,
+        prompt: str,
+        *,
+        context: Any = None,
+        output_type: type[OutputT],
+        history: Optional[Sequence[Any]] = None,
     ) -> RunResult[OutputT]: ...
     @overload
-    async def run(self, prompt: str, *, context: Any = None) -> RunResult[Any]: ...
+    async def run(
+        self, prompt: str, *, context: Any = None, history: Optional[Sequence[Any]] = None
+    ) -> RunResult[Any]: ...
 
     async def run(
         self,
@@ -191,13 +200,16 @@ class Agent:
         context: Any = None,
         output_type: Optional[type] = None,
         on_event: Optional[Callable[[AgentEvent], None]] = None,
+        history: Optional[Sequence[Any]] = None,
     ) -> RunResult[Any]:
         """Run to a typed, validated deliverable.
 
         ``output_type`` overrides the agent's default schema for this call;
         ``output_type=str`` makes the final assistant text the deliverable.
         ``on_event`` optionally observes the event stream (steps, sources,
-        usage) while the structured run progresses.
+        usage) while the structured run progresses. ``history`` is prior
+        conversation turns (``Message`` objects or ``{"role", "content"}``
+        dicts) prepended before this call's ``prompt``.
         """
         effective = output_type or self.output_type
         if effective is None:
@@ -216,6 +228,7 @@ class Agent:
                 streaming=False,
                 trajectory=trajectory,
                 sources=sources,
+                history=history,
             ):
                 if on_event is not None:
                     on_event(event)
@@ -231,12 +244,20 @@ class Agent:
 
     # --------------------------------------------------------------- stream
 
-    async def stream(self, prompt: str, *, context: Any = None) -> AsyncIterator[AgentEvent]:
+    async def stream(
+        self,
+        prompt: str,
+        *,
+        context: Any = None,
+        history: Optional[Sequence[Any]] = None,
+    ) -> AsyncIterator[AgentEvent]:
         """Run as a live conversation, yielding the typed event stream.
 
         The stream ends with a ``done`` event, or an ``error`` event if the
         run fails in an expected way (framework errors). Unexpected
         exceptions propagate after an ``error`` event is emitted.
+        ``history`` is prior conversation turns (``Message`` objects or
+        ``{"role", "content"}`` dicts) prepended before ``prompt``.
         """
         trajectory: list[ToolCallRecord] = []
         sources: list[Source] = []
@@ -249,6 +270,7 @@ class Agent:
                     streaming=True,
                     trajectory=trajectory,
                     sources=sources,
+                    history=history,
                 ):
                     yield event
             except ShankitError as exc:
@@ -268,6 +290,7 @@ class Agent:
         streaming: bool,
         trajectory: list[ToolCallRecord],
         sources: list[Source],
+        history: Optional[Sequence[Any]] = None,
     ) -> AsyncIterator[AgentEvent]:
         client, model_id = resolve_model(self.model, self.model_client)
         system = await self._resolve_instructions(context)
@@ -282,7 +305,10 @@ class Agent:
             output_spec = _OutputSpec(output_type)
             tool_defs = [*tool_defs, output_spec.tool_def]
 
-        messages: list[Message] = [user_message(prompt)]
+        messages: list[Message] = [
+            *(coerce_message(m) for m in history or ()),
+            user_message(prompt),
+        ]
         total_usage = Usage()
         final_text = ""
         output_attempts = 0
@@ -344,15 +370,16 @@ class Agent:
                 yield DoneEvent(text=final_text, output=output, usage=total_usage)
                 return
 
-            result_blocks: list[ToolResultBlock] = []
+            blocks_by_id: dict[str, ToolResultBlock] = {}
             finished: Optional[tuple[Any]] = None  # 1-tuple so None output is representable
+            pending: list[tuple[ToolUseBlock, str, Optional[StepInfo]]] = []
 
             for tool_use in tool_uses:
                 if output_spec is not None and tool_use.name == OUTPUT_TOOL_NAME:
                     try:
                         finished = (output_spec.validate(tool_use.input),)
-                        result_blocks.append(
-                            ToolResultBlock(tool_use_id=tool_use.id, content="Final result recorded.")
+                        blocks_by_id[tool_use.id] = ToolResultBlock(
+                            tool_use_id=tool_use.id, content="Final result recorded."
                         )
                     except ValidationError as exc:
                         if output_attempts >= self.output_retries:
@@ -361,15 +388,13 @@ class Agent:
                                 f"validation after {output_attempts} retries: {exc}"
                             ) from exc
                         output_attempts += 1
-                        result_blocks.append(
-                            ToolResultBlock(
-                                tool_use_id=tool_use.id,
-                                content=(
-                                    f"The result did not match the schema:\n{exc}\n"
-                                    f"Fix the issues and call `{OUTPUT_TOOL_NAME}` again."
-                                ),
-                                is_error=True,
-                            )
+                        blocks_by_id[tool_use.id] = ToolResultBlock(
+                            tool_use_id=tool_use.id,
+                            content=(
+                                f"The result did not match the schema:\n{exc}\n"
+                                f"Fix the issues and call `{OUTPUT_TOOL_NAME}` again."
+                            ),
+                            is_error=True,
                         )
                     continue
 
@@ -384,9 +409,17 @@ class Agent:
                         phase=info.phase,
                         status="running",
                     )
+                pending.append((tool_use, step_id, info))
 
-                result = await self._execute_tool(tool_use, context, known_tools)
+            # The model emits multiple tool calls in one turn knowing they are
+            # independent, so execute them concurrently. Running steps were
+            # already emitted in emission order above; results are processed
+            # in that same order so the event stream stays deterministic.
+            results = await asyncio.gather(
+                *(self._execute_tool(tu, context, known_tools) for tu, _, _ in pending)
+            )
 
+            for (tool_use, step_id, info), result in zip(pending, results, strict=True):
                 trajectory.append(
                     ToolCallRecord(
                         tool=tool_use.name,
@@ -408,15 +441,15 @@ class Agent:
                         phase=info.phase,
                         status="error" if result.is_error else "done",
                     )
-                result_blocks.append(
-                    ToolResultBlock(
-                        tool_use_id=tool_use.id,
-                        content=result.content,
-                        is_error=result.is_error,
-                    )
+                blocks_by_id[tool_use.id] = ToolResultBlock(
+                    tool_use_id=tool_use.id,
+                    content=result.content,
+                    is_error=result.is_error,
                 )
 
-            messages.append(Message(role="user", content=list(result_blocks)))
+            messages.append(
+                Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses])
+            )
 
             if finished is not None:
                 yield DoneEvent(text=final_text, output=finished[0], usage=total_usage)

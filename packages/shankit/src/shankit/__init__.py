@@ -39,7 +39,7 @@ from .exceptions import (
     ToolNotFoundError,
 )
 from .files import Registry, default_registry, load_agent, load_agents, register
-from .messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
+from .messages import Message, TextBlock, ToolResultBlock, ToolUseBlock, coerce_message
 from .models import ModelClient, ModelRequest, ModelResponse, register_provider, resolve_model
 from .observe import StepDescriber, StepInfo, default_step_describer
 from .sse import format_sse, sse_stream
@@ -96,6 +96,7 @@ __all__ = [
     "TextBlock",
     "ToolUseBlock",
     "ToolResultBlock",
+    "coerce_message",
     # files
     "load_agent",
     "load_agents",
