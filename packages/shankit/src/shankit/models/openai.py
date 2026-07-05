@@ -68,6 +68,7 @@ class OpenAIModel(ModelClient):
             if getattr(chunk, "usage", None):
                 usage.input_tokens = chunk.usage.prompt_tokens or 0
                 usage.output_tokens = chunk.usage.completion_tokens or 0
+                usage.cache_read_tokens = _cached_tokens(chunk.usage)
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
@@ -115,7 +116,10 @@ def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     """Convert a neutral request into ``chat.completions.create`` kwargs."""
     kwargs: dict[str, Any] = {
         "model": request.model,
-        "max_tokens": request.max_tokens,
+        # `max_tokens` is deprecated on Chat Completions and rejected by
+        # reasoning models (which spend completion budget on reasoning);
+        # `max_completion_tokens` is the accepted spelling for both.
+        "max_completion_tokens": request.max_tokens,
         "messages": to_openai_messages(request.system, request.messages),
     }
     if request.temperature is not None:
@@ -195,8 +199,14 @@ def parse_completion(response: Any) -> ModelResponse:
     if getattr(response, "usage", None):
         usage.input_tokens = response.usage.prompt_tokens or 0
         usage.output_tokens = response.usage.completion_tokens or 0
+        usage.cache_read_tokens = _cached_tokens(response.usage)
     stop = _FINISH_REASONS.get(choice.finish_reason or "", "other")
     return ModelResponse(content=content, stop_reason=stop, usage=usage)  # type: ignore[arg-type]
+
+
+def _cached_tokens(usage: Any) -> int:
+    details = getattr(usage, "prompt_tokens_details", None)
+    return getattr(details, "cached_tokens", 0) or 0
 
 
 def _parse_arguments(raw: str) -> dict[str, Any]:

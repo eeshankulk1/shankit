@@ -24,16 +24,26 @@ _STOP_REASONS = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "
 
 
 class AnthropicModel(ModelClient):
+    """Anthropic client.
+
+    ``cache_system_and_tools`` (default on) sends top-level
+    ``cache_control: {"type": "ephemeral"}`` so the system prompt + tool
+    definitions are prompt-cached across the iterations of an agent loop.
+    Cache-read tokens are reported on ``Usage.cache_read_tokens``.
+    """
+
     def __init__(
         self,
         *,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         client: Any = None,
+        cache_system_and_tools: bool = True,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._client = client
+        self._cache_system_and_tools = cache_system_and_tools
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -49,12 +59,15 @@ class AnthropicModel(ModelClient):
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
-        message = await client.messages.create(**build_kwargs(request))
+        message = await client.messages.create(
+            **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+        )
         return parse_message(message)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         client = self._get_client()
-        async with client.messages.stream(**build_kwargs(request)) as stream:
+        kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+        async with client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 if text:
                     yield ModelTextDelta(text=text)
@@ -66,13 +79,17 @@ class AnthropicModel(ModelClient):
             await self._client.close()
 
 
-def build_kwargs(request: ModelRequest) -> dict[str, Any]:
+def build_kwargs(
+    request: ModelRequest, *, cache_system_and_tools: bool = False
+) -> dict[str, Any]:
     """Convert a neutral request into ``anthropic.messages.create`` kwargs."""
     kwargs: dict[str, Any] = {
         "model": request.model,
         "max_tokens": request.max_tokens,
         "messages": [m.model_dump() for m in request.messages],
     }
+    if cache_system_and_tools:
+        kwargs["cache_control"] = {"type": "ephemeral"}
     if request.system is not None:
         kwargs["system"] = request.system
     if request.temperature is not None:
@@ -103,6 +120,7 @@ def parse_message(message: Any) -> ModelResponse:
     usage = Usage(
         input_tokens=getattr(message.usage, "input_tokens", 0) or 0,
         output_tokens=getattr(message.usage, "output_tokens", 0) or 0,
+        cache_read_tokens=getattr(message.usage, "cache_read_input_tokens", 0) or 0,
         requests=1,
     )
     stop = _STOP_REASONS.get(getattr(message, "stop_reason", None) or "", "other")

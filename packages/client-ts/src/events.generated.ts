@@ -25,6 +25,7 @@ export interface Source {
 export interface Usage {
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
   requests: number;
 }
 

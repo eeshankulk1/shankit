@@ -19,6 +19,7 @@ __all__ = [
     "Message",
     "user_message",
     "assistant_text",
+    "coerce_message",
 ]
 
 
@@ -54,6 +55,23 @@ class Message(BaseModel):
 
 def user_message(text: str) -> Message:
     return Message(role="user", content=[TextBlock(text=text)])
+
+
+def coerce_message(item: Message | dict[str, Any]) -> Message:
+    """Accept a :class:`Message` or a plain ``{"role", "content"}`` dict.
+
+    A dict's ``content`` may be a string (wrapped in a text block) or a list
+    of content blocks. This is the leniency layer for callers that keep chat
+    history in plain-dict form.
+    """
+    if isinstance(item, Message):
+        return item
+    if isinstance(item, dict):
+        content = item.get("content")
+        if isinstance(content, str):
+            return Message(role=item["role"], content=[TextBlock(text=content)])
+        return Message.model_validate(item)
+    raise TypeError(f"Cannot coerce {type(item).__name__} into a Message.")
 
 
 def assistant_text(message: Message) -> str:
