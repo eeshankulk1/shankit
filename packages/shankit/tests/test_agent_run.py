@@ -215,3 +215,28 @@ async def test_agent_object_in_tools_rejected(make_agent):
     sub = Agent(name="sub", model="anthropic:x")
     with pytest.raises(TypeError, match="as_tool"):
         Agent(name="parent", model="anthropic:x", tools=[sub])
+
+
+def test_output_spec_hoists_defs_for_wrapped_schemas():
+    """Non-object output types (list[Model], unions) get nested under
+    properties.value — pydantic's "#/$defs/..." refs must stay resolvable
+    from the schema root or the model receives dangling references."""
+    from shankit.agent import _OutputSpec
+
+    spec = _OutputSpec(list[Answer])
+    schema = spec.tool_def.input_schema
+    assert spec.wrapped
+    assert "$defs" in schema
+    assert "$defs" not in schema["properties"]["value"]
+    ref = schema["properties"]["value"]["items"]["$ref"]
+    assert ref.rsplit("/", 1)[-1] in schema["$defs"]
+    validated = spec.validate({"value": [{"value": 1, "note": "n"}]})
+    assert validated == [Answer(value=1, note="n")]
+
+
+async def test_run_with_list_output_type(make_agent):
+    agent, fake = make_agent(
+        [final_result_response({"value": [{"value": 2, "note": "x"}]})],
+    )
+    result = await agent.run("go", output_type=list[Answer])
+    assert result.output == [Answer(value=2, note="x")]

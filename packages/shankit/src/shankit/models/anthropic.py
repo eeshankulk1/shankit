@@ -27,9 +27,14 @@ class AnthropicModel(ModelClient):
     """Anthropic client.
 
     ``cache_system_and_tools`` (default on) sends top-level
-    ``cache_control: {"type": "ephemeral"}`` so the system prompt + tool
-    definitions are prompt-cached across the iterations of an agent loop.
-    Cache-read tokens are reported on ``Usage.cache_read_tokens``.
+    ``cache_control: {"type": "ephemeral"}``, which the API applies to the
+    last cacheable block of the request — so the system prompt, tool
+    definitions, *and the growing message prefix* are prompt-cached across
+    the iterations of an agent loop (the cache marker advances each
+    iteration, writing the new suffix). Cache-read tokens are reported on
+    ``Usage.cache_read_tokens``; cache-written tokens (billed at a premium
+    and excluded from ``input_tokens`` by the API) on
+    ``Usage.cache_write_tokens``.
     """
 
     def __init__(
@@ -121,6 +126,7 @@ def parse_message(message: Any) -> ModelResponse:
         input_tokens=getattr(message.usage, "input_tokens", 0) or 0,
         output_tokens=getattr(message.usage, "output_tokens", 0) or 0,
         cache_read_tokens=getattr(message.usage, "cache_read_input_tokens", 0) or 0,
+        cache_write_tokens=getattr(message.usage, "cache_creation_input_tokens", 0) or 0,
         requests=1,
     )
     stop = _STOP_REASONS.get(getattr(message, "stop_reason", None) or "", "other")

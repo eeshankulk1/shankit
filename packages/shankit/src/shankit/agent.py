@@ -108,11 +108,17 @@ class _OutputSpec:
         schema = self.adapter.json_schema()
         self.wrapped = schema.get("type") != "object"
         if self.wrapped:
+            # Hoist $defs to the wrapper root: pydantic emits "#/$defs/..."
+            # refs relative to the schema root, so leaving them nested under
+            # properties.value would dangle.
+            defs = schema.pop("$defs", None)
             schema = {
                 "type": "object",
                 "properties": {"value": schema},
                 "required": ["value"],
             }
+            if defs:
+                schema["$defs"] = defs
         self.tool_def = ToolDef(
             name=OUTPUT_TOOL_NAME,
             description=(
@@ -293,11 +299,19 @@ class Agent:
         history: Optional[Sequence[Any]] = None,
     ) -> AsyncIterator[AgentEvent]:
         client, model_id = resolve_model(self.model, self.model_client)
-        system = await self._resolve_instructions(context)
 
-        tool_defs: list[ToolDef] = []
+        # Instructions and the tool catalog are independent; resolving them
+        # concurrently matters when both hit the network (dynamic
+        # instructions + a connector-backed tool source) on a cold cache.
         if self.tool_source is not None:
-            tool_defs = list(await self.tool_source.list_tools(context))
+            system, listed = await asyncio.gather(
+                self._resolve_instructions(context),
+                self.tool_source.list_tools(context),
+            )
+            tool_defs: list[ToolDef] = list(listed)
+        else:
+            system = await self._resolve_instructions(context)
+            tool_defs = []
         known_tools = {t.name for t in tool_defs}
 
         output_spec: Optional[_OutputSpec] = None
@@ -341,6 +355,14 @@ class Agent:
 
             total_usage.add(response.usage)
             yield UsageEvent(usage=response.usage)
+
+            if response.stop_reason == "max_tokens":
+                logger.warning(
+                    "Agent %r: model response truncated at max_tokens=%d; "
+                    "the answer (or a tool call's input) may be incomplete.",
+                    self.name,
+                    self.max_tokens,
+                )
 
             assistant = Message(role="assistant", content=response.content)
             messages.append(assistant)
@@ -415,9 +437,19 @@ class Agent:
             # independent, so execute them concurrently. Running steps were
             # already emitted in emission order above; results are processed
             # in that same order so the event stream stays deterministic.
-            results = await asyncio.gather(
-                *(self._execute_tool(tu, context, known_tools) for tu, _, _ in pending)
-            )
+            # If the consumer closes the stream (client disconnect) while we
+            # are suspended here, cancel the in-flight tool tasks instead of
+            # orphaning them to run (and side-effect) in the background.
+            tasks = [
+                asyncio.ensure_future(self._execute_tool(tu, context, known_tools))
+                for tu, _, _ in pending
+            ]
+            try:
+                results = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                raise
 
             for (tool_use, step_id, info), result in zip(pending, results, strict=True):
                 trajectory.append(
