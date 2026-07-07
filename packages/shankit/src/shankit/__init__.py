@@ -32,6 +32,7 @@ from .events import (
 from .exceptions import (
     AgentFileError,
     MaxIterationsError,
+    ModelError,
     OutputValidationError,
     PromptVariableError,
     ShankitError,
@@ -115,6 +116,7 @@ __all__ = [
     "ShankitError",
     "ToolError",
     "ToolNotFoundError",
+    "ModelError",
     "OutputValidationError",
     "MaxIterationsError",
     "AgentFileError",

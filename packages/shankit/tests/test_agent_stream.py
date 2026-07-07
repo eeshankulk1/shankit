@@ -176,6 +176,8 @@ async def test_framework_error_becomes_error_event(make_agent):
     events = await collect(agent.stream("go"))
     assert isinstance(events[-1], ErrorEvent)
     assert "max_iterations" in events[-1].message
+    assert events[-1].code == "max_iterations"
+    assert not events[-1].retryable
 
 
 async def test_cancelled_stream_cancels_inflight_tools(make_agent):

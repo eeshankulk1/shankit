@@ -1,21 +1,31 @@
 """Framework exception hierarchy.
 
-The uniform tool error contract (design §4) lives here: ``ToolError`` is the
-one exception a tool may raise to send a controlled, model-visible failure
-message back into the loop. Anything else a tool raises is treated as an
-unexpected failure and sanitized before the model sees it.
+Two uniform error contracts (design §4) live here:
+
+- ``ToolError`` is the one exception a tool may raise to send a controlled,
+  model-visible failure message back into the loop. Anything else a tool
+  raises is treated as an unexpected failure and sanitized before the model
+  sees it.
+- ``ModelError`` is the provider-neutral shape of a failed model call. Model
+  clients map their own SDK's exceptions onto it; the loop wraps anything
+  else a client raises. Callers never need to import a provider SDK's
+  exception types to implement retry/backoff.
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 __all__ = [
     "ShankitError",
     "ToolError",
     "ToolNotFoundError",
+    "ModelError",
     "OutputValidationError",
     "MaxIterationsError",
     "AgentFileError",
     "PromptVariableError",
+    "error_code",
 ]
 
 
@@ -42,6 +52,30 @@ class ToolNotFoundError(ToolError):
         self.name = name
 
 
+class ModelError(ShankitError):
+    """A model provider call failed, in provider-neutral form.
+
+    ``retryable`` is the field callers act on: rate limits, overloads, and
+    connection failures are transient; schema and auth failures are not.
+    The original SDK exception stays chained as ``__cause__`` for
+    debugging. The message must be human-safe (no request ids, no keys) —
+    it is what ``ErrorEvent.message`` shows end users.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: Optional[str] = None,
+        status: Optional[int] = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.status = status
+        self.retryable = retryable
+
+
 class OutputValidationError(ShankitError):
     """A structured run could not produce output matching the schema."""
 
@@ -56,3 +90,16 @@ class AgentFileError(ShankitError):
 
 class PromptVariableError(AgentFileError):
     """A prompt placeholder could not be filled from context/variables."""
+
+
+def error_code(exc: BaseException) -> str:
+    """The ``ErrorEvent.code`` for an exception (see ``events.ErrorEvent``)."""
+    if isinstance(exc, ModelError):
+        return "model_error"
+    if isinstance(exc, MaxIterationsError):
+        return "max_iterations"
+    if isinstance(exc, OutputValidationError):
+        return "output_validation"
+    if isinstance(exc, ShankitError):
+        return "error"
+    return "unexpected"

@@ -21,7 +21,7 @@ from typing import Union
 from pydantic import BaseModel
 
 from .events import ErrorEvent
-from .exceptions import ShankitError
+from .exceptions import ModelError, ShankitError, error_code
 
 __all__ = ["format_sse", "sse_stream"]
 
@@ -50,4 +50,5 @@ async def sse_stream(
         if errors == "raise":
             raise
         message = str(exc) if isinstance(exc, ShankitError) else "The run failed unexpectedly."
-        yield format_sse(ErrorEvent(message=message))
+        retryable = exc.retryable if isinstance(exc, ModelError) else False
+        yield format_sse(ErrorEvent(message=message, code=error_code(exc), retryable=retryable))

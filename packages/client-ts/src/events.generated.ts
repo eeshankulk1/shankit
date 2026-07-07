@@ -75,10 +75,20 @@ export interface UsageEvent {
 
 /**
  * Terminal event: the run failed.
+ *
+ * ``message`` is human-safe and may be shown to end users. ``code`` says
+ * *what kind* of failure without parsing the message; the codes emitted
+ * today are ``model_error`` (the model provider call failed),
+ * ``max_iterations``, ``output_validation``, ``error`` (other framework
+ * errors), and ``unexpected`` — the field stays an open string so new
+ * codes are not a breaking change. ``retryable`` is true when retrying
+ * the run shortly is reasonable (rate limits, provider overloads).
  */
 export interface ErrorEvent {
   type: "error";
   message: string;
+  code: string;
+  retryable: boolean;
 }
 
 /**

@@ -43,9 +43,11 @@ from .events import (
 )
 from .exceptions import (
     MaxIterationsError,
+    ModelError,
     OutputValidationError,
     ShankitError,
     ToolError,
+    error_code,
 )
 from .messages import (
     Message,
@@ -219,11 +221,14 @@ class Agent:
         """Run to a typed, validated deliverable.
 
         ``output_type`` overrides the agent's default schema for this call;
-        ``output_type=str`` makes the final assistant text the deliverable.
+        ``output_type=str`` makes the run's assistant text the deliverable.
         ``on_event`` optionally observes the event stream (steps, sources,
         usage) while the structured run progresses. ``history`` is prior
         conversation turns (``Message`` objects or ``{"role", "content"}``
         dicts) prepended before this call's ``prompt``.
+
+        A failed model provider call raises :class:`shankit.ModelError`
+        (check ``retryable`` for backoff) — never a provider SDK exception.
         """
         effective = output_type or self.output_type
         if effective is None:
@@ -288,10 +293,12 @@ class Agent:
                     history=history,
                 ):
                     yield event
+            except ModelError as exc:
+                yield ErrorEvent(message=str(exc), code="model_error", retryable=exc.retryable)
             except ShankitError as exc:
-                yield ErrorEvent(message=str(exc))
+                yield ErrorEvent(message=str(exc), code=error_code(exc))
             except Exception:
-                yield ErrorEvent(message="The run failed unexpectedly.")
+                yield ErrorEvent(message="The run failed unexpectedly.", code="unexpected")
                 raise
 
     # ----------------------------------------------------------- the loop
@@ -351,17 +358,26 @@ class Agent:
             )
             force_output = False
 
-            if streaming:
-                response = None
-                async for model_event in client.stream(request):
-                    if isinstance(model_event, ModelTextDelta):
-                        yield TextDeltaEvent(text=model_event.text)
-                    elif isinstance(model_event, ModelResponseComplete):
-                        response = model_event.response
-                if response is None:
-                    raise ShankitError("Model stream ended without a complete response.")
-            else:
-                response = await client.complete(request)
+            # Fallback half of the model error contract: the shipped clients
+            # map their SDK's exceptions to ModelError themselves (they know
+            # which failures are transient); anything a custom client leaks
+            # is wrapped here so callers never see provider exception types.
+            try:
+                if streaming:
+                    response = None
+                    async for model_event in client.stream(request):
+                        if isinstance(model_event, ModelTextDelta):
+                            yield TextDeltaEvent(text=model_event.text)
+                        elif isinstance(model_event, ModelResponseComplete):
+                            response = model_event.response
+                    if response is None:
+                        raise ShankitError("Model stream ended without a complete response.")
+                else:
+                    response = await client.complete(request)
+            except ShankitError:
+                raise
+            except Exception as exc:
+                raise ModelError("The model call failed.") from exc
 
             total_usage.add(response.usage)
             yield UsageEvent(usage=response.usage)

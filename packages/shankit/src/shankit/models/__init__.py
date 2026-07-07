@@ -6,6 +6,7 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    model_error_for_status,
 )
 from .registry import register_provider, resolve_model
 
@@ -17,6 +18,7 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ForcedTool",
+    "model_error_for_status",
     "register_provider",
     "resolve_model",
 ]

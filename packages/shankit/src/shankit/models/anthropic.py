@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
-from ..exceptions import ShankitError
+from ..exceptions import ModelError, ShankitError
 from ..messages import ContentBlock, TextBlock, ToolUseBlock
 from ..usage import Usage
 from .base import (
@@ -16,6 +16,7 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    model_error_for_status,
 )
 
 __all__ = ["AnthropicModel"]
@@ -64,24 +65,57 @@ class AnthropicModel(ModelClient):
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
-        message = await client.messages.create(
-            **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
-        )
+        try:
+            message = await client.messages.create(
+                **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+            )
+        except Exception as exc:
+            mapped = _map_error(exc)
+            if mapped is None:
+                raise
+            raise mapped from exc
         return parse_message(message)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         client = self._get_client()
         kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
-        async with client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                if text:
-                    yield ModelTextDelta(text=text)
-            final = await stream.get_final_message()
+        try:
+            async with client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    if text:
+                        yield ModelTextDelta(text=text)
+                final = await stream.get_final_message()
+        except Exception as exc:
+            mapped = _map_error(exc)
+            if mapped is None:
+                raise
+            raise mapped from exc
         yield ModelResponseComplete(response=parse_message(final))
 
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "close"):
             await self._client.close()
+
+
+def _map_error(exc: Exception) -> Optional[ModelError]:
+    """Map an anthropic SDK exception onto the neutral error contract.
+
+    Returns ``None`` for exceptions that are not the SDK's (the caller
+    re-raises those unchanged).
+    """
+    import anthropic
+
+    if isinstance(exc, anthropic.APIStatusError):
+        return model_error_for_status("anthropic", exc.status_code)
+    if isinstance(exc, anthropic.APIConnectionError):  # includes APITimeoutError
+        return ModelError(
+            "Could not reach the model provider; retry shortly.",
+            provider="anthropic",
+            retryable=True,
+        )
+    if isinstance(exc, anthropic.AnthropicError):
+        return ModelError("The model provider call failed.", provider="anthropic")
+    return None
 
 
 def build_kwargs(

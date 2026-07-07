@@ -3,12 +3,20 @@
 The agent loop talks to models only through :class:`ModelClient`. Requests
 carry messages/tools in the framework's one boundary shape (Anthropic
 tool-use shape); each client converts to its provider's wire format
-internally.
+internally. Provider-specific response blocks with no place in that shape
+(e.g. Anthropic thinking or server-tool blocks) are dropped by the client
+during conversion — the boundary carries text and tool use only.
 
 Streaming contract: ``stream()`` yields zero or more ``ModelTextDelta``
 events followed by exactly one ``ModelResponseComplete`` carrying the full
 response (including any tool-use blocks), so the loop can stream text while
 still handling tool calls off the complete response.
+
+Error contract: a failed provider call surfaces as
+:class:`shankit.ModelError` (``model_error_for_status`` builds the common
+HTTP-status case). A client that raises anything else is tolerated — the
+loop wraps unknown exceptions as a fallback — but mapping in the client is
+better, because the client knows which of its SDK's failures are transient.
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from ..exceptions import ModelError
 from ..messages import ContentBlock, Message
 from ..tools.base import ToolDef
 from ..usage import Usage
@@ -31,6 +40,7 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelClient",
+    "model_error_for_status",
 ]
 
 
@@ -105,6 +115,25 @@ def default_stream_from_complete(
         yield ModelResponseComplete(response=response)
 
     return _gen()
+
+
+def model_error_for_status(provider: str, status: int) -> ModelError:
+    """The :class:`ModelError` for an HTTP status from a provider API.
+
+    Retryability follows what the provider SDKs themselves auto-retry:
+    408/409/429 and every 5xx (which covers Anthropic's 529 overloaded).
+    Messages are human-safe — no request ids, no response bodies.
+    """
+    retryable = status in (408, 409, 429) or status >= 500
+    if status == 429:
+        message = "The model provider is rate-limiting requests; retry shortly."
+    elif status >= 500:
+        message = "The model provider is temporarily unavailable; retry shortly."
+    elif status in (401, 403):
+        message = "The model provider rejected the request credentials."
+    else:
+        message = f"The model provider rejected the request (status {status})."
+    return ModelError(message, provider=provider, status=status, retryable=retryable)
 
 
 def _unused(*_: Any) -> None:  # keep pydantic import shape stable for type checkers
