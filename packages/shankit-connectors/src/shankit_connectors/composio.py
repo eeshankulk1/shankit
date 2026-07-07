@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable, Sequence
 from typing import Any, Optional
 
@@ -49,6 +50,17 @@ class ComposioConnector(Connector):
             toolkits can be large).
         client: An existing ``composio.Composio`` client (otherwise one is
             constructed from ``api_key`` / the environment).
+        tools_cache_ttl: Opt-in seconds to cache the ``list_tools`` catalog.
+            The agent loop lists tools on every run, and an uncached catalog
+            fetch costs a network round-trip per turn; the catalog does not
+            depend on the per-run context (identity only matters at
+            execute), so one cache per connector is safe. ``None`` (default)
+            fetches every time. Calling ``list_tools`` once at startup warms
+            the cache, which is all a warmup hook would do.
+
+    Subclass points: override :meth:`transform_result` to post-process
+    successful tool payloads before the model sees them (e.g. slim bulky
+    vendor responses).
     """
 
     def __init__(
@@ -59,12 +71,15 @@ class ComposioConnector(Connector):
         tools: Optional[Sequence[str]] = None,
         client: Any = None,
         api_key: Optional[str] = None,
+        tools_cache_ttl: Optional[float] = None,
     ) -> None:
         self.toolkit = toolkit
         self._user_id = user_id
         self._allowlist = [t.upper() for t in tools] if tools else None
         self._client = client
         self._api_key = api_key
+        self._tools_cache_ttl = tools_cache_ttl
+        self._tools_cache: Optional[tuple[float, list[ToolDef]]] = None
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -86,6 +101,10 @@ class ComposioConnector(Connector):
     # -------------------------------------------------------- the tool seam
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
+        if self._tools_cache_ttl is not None and self._tools_cache is not None:
+            fetched_at, cached = self._tools_cache
+            if time.monotonic() - fetched_at < self._tools_cache_ttl:
+                return list(cached)
         client = self._get_client()
         if self._allowlist is not None:
             # Fetch exactly the allowlisted slugs instead of the whole
@@ -113,6 +132,8 @@ class ComposioConnector(Connector):
                     or {"type": "object", "properties": {}},
                 )
             )
+        if self._tools_cache_ttl is not None:
+            self._tools_cache = (time.monotonic(), list(defs))
         return defs
 
     async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
@@ -131,9 +152,19 @@ class ComposioConnector(Connector):
             # uniform contract: raise ToolError so the loop treats it as a
             # controlled, model-visible failure.
             raise ToolError(str(error) if error else f"The {name} action failed.")
+        data = self.transform_result(name, data, context)
         if isinstance(data, str):
             return ToolResult(content=data)
         return ToolResult(content=json.dumps(data, default=str))
+
+    def transform_result(self, name: str, data: Any, context: Any = None) -> Any:
+        """Subclass point: post-process a successful tool payload before the
+        model sees it — e.g. slim a bulky vendor response down to the fields
+        the model needs. Receives the vendor's ``data`` payload; returns the
+        payload to serialize (a ``str`` is sent verbatim, anything else as
+        JSON). The default is a no-op.
+        """
+        return data
 
     # ------------------------------------------------- connection lifecycle
 
@@ -163,9 +194,11 @@ class ComposioConnector(Connector):
 
 def _to_status(connection_id: str, account: Any) -> ConnectionStatus:
     raw_status = str(_field(account, "status") or "").upper()
+    account_id = _field(account, "id")
     return ConnectionStatus(
         connection_id=connection_id,
         status=_STATUS_MAP.get(raw_status, "pending"),  # type: ignore[arg-type]
+        account_id=str(account_id) if account_id else None,
     )
 
 
