@@ -57,6 +57,21 @@ async def test_failing_and_erroring_cases():
     assert statuses["wrong"] == (None, False)
 
 
+def test_output_contains_scores_answer_not_transcript():
+    """An agent that merely *mentions* the expected string in an interim
+    pass must not pass; the scorer targets the deliverable."""
+    from shankit import RunResult, Usage
+
+    result = RunResult(
+        output="ham",
+        text="I'll check whether this is spam.\n\nham",
+        usage=Usage(),
+    )
+    score = output_contains("spam")(Case(name="c", input="x"), result)
+    assert not score.passed
+    assert output_contains("ham")(Case(name="c", input="x"), result).passed
+
+
 async def test_custom_scorer_shapes():
     agent = scripted_agent([text_response("hello")])
 

@@ -34,12 +34,12 @@ from . import _tracing
 from .events import (
     AgentEvent,
     DoneEvent,
-    ErrorEvent,
     Source,
     SourceEvent,
     StepEvent,
     TextDeltaEvent,
     UsageEvent,
+    error_event_for,
 )
 from .exceptions import (
     MaxIterationsError,
@@ -47,7 +47,6 @@ from .exceptions import (
     OutputValidationError,
     ShankitError,
     ToolError,
-    error_code,
 )
 from .messages import (
     Message,
@@ -95,10 +94,13 @@ class ToolCallRecord(BaseModel):
 class RunResult(Generic[OutputT]):
     """The deliverable of a structured run.
 
-    ``text`` is every assistant text pass of the run joined with blank
-    lines — the same transcript a streaming consumer assembles from
-    ``TextDeltaEvent``s — not just the last pass. ``truncated`` is sticky:
-    true if *any* model pass stopped at the token limit, since a truncated
+    ``output`` is the answer: the validated structured result, or — for
+    ``output_type=str`` — the *final* pass's text. ``text`` is the
+    transcript: every assistant text pass of the run joined with blank
+    lines, including interim acknowledgments before tool calls. Score and
+    act on ``output``; persist and display ``text``. ``truncated`` is
+    sticky: true if *any* model pass stopped at the token limit (including
+    a sub-agent's — see ``ToolResult.truncated``), since a truncated
     intermediate pass can corrupt a run as much as a truncated answer.
     """
 
@@ -221,7 +223,8 @@ class Agent:
         """Run to a typed, validated deliverable.
 
         ``output_type`` overrides the agent's default schema for this call;
-        ``output_type=str`` makes the run's assistant text the deliverable.
+        ``output_type=str`` makes the final assistant text the deliverable
+        (the full transcript stays on ``RunResult.text``).
         ``on_event`` optionally observes the event stream (steps, sources,
         usage) while the structured run progresses. ``history`` is prior
         conversation turns (``Message`` objects or ``{"role", "content"}``
@@ -293,12 +296,10 @@ class Agent:
                     history=history,
                 ):
                     yield event
-            except ModelError as exc:
-                yield ErrorEvent(message=str(exc), code="model_error", retryable=exc.retryable)
             except ShankitError as exc:
-                yield ErrorEvent(message=str(exc), code=error_code(exc))
-            except Exception:
-                yield ErrorEvent(message="The run failed unexpectedly.", code="unexpected")
+                yield error_event_for(exc)
+            except Exception as exc:
+                yield error_event_for(exc)
                 raise
 
     # ----------------------------------------------------------- the loop
@@ -346,6 +347,15 @@ class Agent:
         force_output = False
         step_counter = 0
 
+        def done_event(output: Any) -> DoneEvent:
+            # text is the transcript (every pass); output is the answer.
+            return DoneEvent(
+                text="\n\n".join(texts),
+                output=output,
+                usage=total_usage,
+                truncated=truncated,
+            )
+
         for _ in range(self.max_iterations):
             request = ModelRequest(
                 model=model_id,
@@ -377,6 +387,12 @@ class Agent:
             except ShankitError:
                 raise
             except Exception as exc:
+                # Log before wrapping: stream() turns ModelError into a calm
+                # terminal event, so without this the real traceback (which
+                # may be a client bug, not a provider failure) is never seen.
+                logger.exception(
+                    "Model client %r raised a non-ModelError exception", type(client).__name__
+                )
                 raise ModelError("The model call failed.") from exc
 
             total_usage.add(response.usage)
@@ -415,11 +431,10 @@ class Agent:
                     )
                     force_output = True
                     continue
-                final_text = "\n\n".join(texts)
-                output = final_text if output_type is str else None
-                yield DoneEvent(
-                    text=final_text, output=output, usage=total_usage, truncated=truncated
-                )
+                # For output_type=str the deliverable is the final pass —
+                # the answer — not the transcript with its interim passes.
+                output = (texts[-1] if texts else "") if output_type is str else None
+                yield done_event(output)
                 return
 
             blocks_by_id: dict[str, ToolResultBlock] = {}
@@ -499,6 +514,10 @@ class Agent:
                     # UsageEvents always sum to DoneEvent.usage.
                     total_usage.add(result.usage)
                     yield UsageEvent(usage=result.usage)
+                if result.truncated:
+                    # A truncated sub-agent answer corrupts this run's
+                    # deliverable just like a truncated own pass would.
+                    truncated = True
                 if info is not None:
                     yield StepEvent(
                         id=step_id,
@@ -518,12 +537,7 @@ class Agent:
             )
 
             if finished is not None:
-                yield DoneEvent(
-                    text="\n\n".join(texts),
-                    output=finished[0],
-                    usage=total_usage,
-                    truncated=truncated,
-                )
+                yield done_event(finished[0])
                 return
 
         raise MaxIterationsError(
@@ -591,8 +605,8 @@ class Agent:
         its token usage is folded into the parent run's accounting.
 
         Args:
-            output: ``"text"`` (default) returns the sub-agent's text
-                (every pass of its run, joined — see :class:`RunResult`);
+            output: ``"text"`` (default) returns the sub-agent's final
+                answer text (interim passes stay on its transcript);
                 ``"structured"`` runs against the agent's default output
                 schema and returns it as JSON.
         """
@@ -651,7 +665,7 @@ class _AgentToolSource(ToolSource):
                 content = _dump_output(result.output)
             else:
                 result = await self.agent.run(task, context=context, output_type=str)
-                content = result.text
+                content = result.output
         except Exception:
             # Sanitized sub-agent failure: the parent model gets a calm,
             # uniform message; the real traceback goes to the logs.
@@ -660,7 +674,12 @@ class _AgentToolSource(ToolSource):
                 content=f"The {self.agent.name} agent could not complete the task.",
                 is_error=True,
             )
-        return ToolResult(content=content, sources=result.sources, usage=result.usage)
+        return ToolResult(
+            content=content,
+            sources=result.sources,
+            usage=result.usage,
+            truncated=result.truncated,
+        )
 
 
 def _dump_output(output: Any) -> str:

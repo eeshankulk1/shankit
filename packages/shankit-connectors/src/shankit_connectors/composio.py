@@ -79,7 +79,8 @@ class ComposioConnector(Connector):
         self._client = client
         self._api_key = api_key
         self._tools_cache_ttl = tools_cache_ttl
-        self._tools_cache: Optional[tuple[float, list[ToolDef]]] = None
+        self._cached_tools: Optional[list[ToolDef]] = None
+        self._cache_expires_at = 0.0
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -101,10 +102,11 @@ class ComposioConnector(Connector):
     # -------------------------------------------------------- the tool seam
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
-        if self._tools_cache_ttl is not None and self._tools_cache is not None:
-            fetched_at, cached = self._tools_cache
-            if time.monotonic() - fetched_at < self._tools_cache_ttl:
-                return list(cached)
+        if self._cached_tools is not None and time.monotonic() < self._cache_expires_at:
+            # Deep copies both ways: consumers that post-process ToolDefs in
+            # place (schema slimming) must not poison the shared catalog.
+            return [d.model_copy(deep=True) for d in self._cached_tools]
+        fetched_at = time.monotonic()  # stamp before the fetch: conservative TTL
         client = self._get_client()
         if self._allowlist is not None:
             # Fetch exactly the allowlisted slugs instead of the whole
@@ -133,7 +135,8 @@ class ComposioConnector(Connector):
                 )
             )
         if self._tools_cache_ttl is not None:
-            self._tools_cache = (time.monotonic(), list(defs))
+            self._cached_tools = [d.model_copy(deep=True) for d in defs]
+            self._cache_expires_at = fetched_at + self._tools_cache_ttl
         return defs
 
     async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:

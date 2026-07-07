@@ -101,6 +101,6 @@ test("collectRun returns the done event and guards narrow types", async () => {
 });
 
 test("collectRun throws on error terminal event", async () => {
-  const body = 'data: {"type": "error", "message": "boom"}\n\n';
+  const body = 'data: {"type": "error", "message": "boom", "code": "model_error", "retryable": true}\n\n';
   await assert.rejects(collectRun(parseSSEStream(byteStream([body]))), /run failed: boom/);
 });

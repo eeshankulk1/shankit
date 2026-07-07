@@ -22,7 +22,8 @@ better, because the client knows which of its SDK's failures are transient.
 from __future__ import annotations
 
 import abc
-from collections.abc import AsyncIterator
+import contextlib
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -40,7 +41,9 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelClient",
+    "map_sdk_error",
     "model_error_for_status",
+    "wrap_sdk_errors",
 ]
 
 
@@ -134,6 +137,51 @@ def model_error_for_status(provider: str, status: int) -> ModelError:
     else:
         message = f"The model provider rejected the request (status {status})."
     return ModelError(message, provider=provider, status=status, retryable=retryable)
+
+
+def map_sdk_error(
+    exc: Exception,
+    *,
+    provider: str,
+    status_error: type[Exception],
+    connection_error: type[Exception],
+    base_error: type[Exception],
+) -> Optional[ModelError]:
+    """Map a provider SDK exception onto the neutral error contract.
+
+    The three modern provider SDKs share this exception taxonomy (a status
+    error carrying ``status_code``, a connection/timeout error, a catch-all
+    base); a client passes its own classes so the mapping — retryability
+    policy and human-safe messages — cannot drift between providers.
+    Returns ``None`` for exceptions that are not the SDK's.
+    """
+    if isinstance(exc, status_error):
+        return model_error_for_status(provider, exc.status_code)  # type: ignore[attr-defined]
+    if isinstance(exc, connection_error):
+        return ModelError(
+            "Could not reach the model provider; retry shortly.",
+            provider=provider,
+            retryable=True,
+        )
+    if isinstance(exc, base_error):
+        return ModelError("The model provider call failed.", provider=provider)
+    return None
+
+
+@contextlib.contextmanager
+def wrap_sdk_errors(map_error: Callable[[Exception], Optional[ModelError]]) -> Iterator[None]:
+    """Re-raise SDK exceptions from the wrapped block as ``ModelError``.
+
+    Exceptions ``map_error`` does not claim (returns ``None``) propagate
+    unchanged; the original exception always stays chained as ``__cause__``.
+    """
+    try:
+        yield
+    except Exception as exc:
+        mapped = map_error(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
 
 
 def _unused(*_: Any) -> None:  # keep pydantic import shape stable for type checkers

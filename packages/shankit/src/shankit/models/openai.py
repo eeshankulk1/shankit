@@ -17,7 +17,8 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
-    model_error_for_status,
+    map_sdk_error,
+    wrap_sdk_errors,
 )
 
 __all__ = ["OpenAIModel"]
@@ -51,13 +52,8 @@ class OpenAIModel(ModelClient):
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
-        try:
+        with wrap_sdk_errors(_map_error):
             response = await client.chat.completions.create(**build_kwargs(request))
-        except Exception as exc:
-            mapped = _map_error(exc)
-            if mapped is None:
-                raise
-            raise mapped from exc
         return parse_completion(response)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
@@ -70,7 +66,7 @@ class OpenAIModel(ModelClient):
         tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         usage = Usage(requests=1)
-        try:
+        with wrap_sdk_errors(_map_error):
             stream = await client.chat.completions.create(**kwargs)
             async for chunk in stream:
                 if getattr(chunk, "usage", None):
@@ -96,11 +92,6 @@ class OpenAIModel(ModelClient):
                         acc["name"] = tc.function.name
                     if tc.function and tc.function.arguments:
                         acc["arguments"] += tc.function.arguments
-        except Exception as exc:
-            mapped = _map_error(exc)
-            if mapped is None:
-                raise
-            raise mapped from exc
 
         content: list[ContentBlock] = []
         text = "".join(text_parts)
@@ -126,24 +117,15 @@ class OpenAIModel(ModelClient):
 
 
 def _map_error(exc: Exception) -> Optional[ModelError]:
-    """Map an openai SDK exception onto the neutral error contract.
-
-    Returns ``None`` for exceptions that are not the SDK's (the caller
-    re-raises those unchanged).
-    """
     import openai
 
-    if isinstance(exc, openai.APIStatusError):
-        return model_error_for_status("openai", exc.status_code)
-    if isinstance(exc, openai.APIConnectionError):  # includes APITimeoutError
-        return ModelError(
-            "Could not reach the model provider; retry shortly.",
-            provider="openai",
-            retryable=True,
-        )
-    if isinstance(exc, openai.OpenAIError):
-        return ModelError("The model provider call failed.", provider="openai")
-    return None
+    return map_sdk_error(
+        exc,
+        provider="openai",
+        status_error=openai.APIStatusError,
+        connection_error=openai.APIConnectionError,  # includes APITimeoutError
+        base_error=openai.OpenAIError,
+    )
 
 
 def build_kwargs(request: ModelRequest) -> dict[str, Any]:

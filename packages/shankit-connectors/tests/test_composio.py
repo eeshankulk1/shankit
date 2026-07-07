@@ -152,6 +152,18 @@ async def test_tools_cache_ttl_skips_refetch(monkeypatch):
     assert len(connector._client.raw_tool_queries) == 2  # expired, refetched
 
 
+async def test_cached_catalog_is_mutation_safe():
+    """Consumers that post-process ToolDefs in place (schema slimming) must
+    not poison the shared cache."""
+    connector = ComposioConnector(
+        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
+    )
+    first = await connector.list_tools()
+    first[0].input_schema["properties"]["to"]["type"] = "MUTATED"
+    second = await connector.list_tools()
+    assert second[0].input_schema["properties"]["to"]["type"] == "string"
+
+
 async def test_no_ttl_fetches_every_time():
     connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio())
     await connector.list_tools()

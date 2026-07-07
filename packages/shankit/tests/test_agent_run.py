@@ -105,8 +105,9 @@ async def test_run_text_keeps_interim_passes(make_agent):
         tools=[add],
     )
     result = await agent.run("go", output_type=str)
+    # text is the transcript; the str deliverable is the answer alone
     assert result.text == "Let me add those.\n\nThe sum is 5."
-    assert result.output == result.text
+    assert result.output == "The sum is 5."
 
 
 async def test_run_reports_truncation(make_agent):

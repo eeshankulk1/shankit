@@ -10,11 +10,15 @@ the agent a ``ModelClient`` instance.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Callable
 from typing import Optional
 
 from ..exceptions import ShankitError
 from .base import ModelClient
+
+logger = logging.getLogger("shankit")
 
 __all__ = ["register_provider", "resolve_model", "shutdown"]
 
@@ -77,9 +81,13 @@ async def shutdown() -> None:
     for servers but leaks unclosed-transport warnings in short-lived
     scripts. Call ``await shankit.models.shutdown()`` at the end of such
     scripts; the next ``resolve_model`` after a shutdown simply constructs
-    fresh clients.
+    fresh clients. Closes run concurrently, and one client failing to
+    close never prevents the others from closing (failures are logged,
+    not raised — this is a cleanup helper, typically in a ``finally``).
     """
     clients = list(_CLIENT_CACHE.values())
     _CLIENT_CACHE.clear()
-    for client in clients:
-        await client.aclose()
+    results = await asyncio.gather(*(c.aclose() for c in clients), return_exceptions=True)
+    for client, result in zip(clients, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("Closing model client %r failed: %s", client, result)

@@ -16,12 +16,8 @@ class LeakyModel(FakeModel):
         super().__init__([])
         self.exc = exc
 
-    async def complete(self, request):
+    def _next(self, request):  # both complete() and stream() route through here
         raise self.exc
-
-    async def stream(self, request):
-        raise self.exc
-        yield  # pragma: no cover — makes this an async generator
 
 
 # ------------------------------------------------------------- the loop

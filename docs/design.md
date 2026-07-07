@@ -444,18 +444,24 @@ where the original text had a gap (flagged ⚠):
    `shankit` / `@shankit/client`; renaming before first release is a
    find-replace plus package metadata.
 
-10. **⚠ `DoneEvent.text` is the full transcript, not the last pass.** The
-    original build kept only the final iteration's text, so an agent that
-    speaks before its tool calls lost those sentences from the result —
-    the streamed transcript and the persisted text disagreed, violating
-    §6's "single source of truth," and the first consumer coupled to
-    UsageEvent ordering to reassemble it. `text` (on `DoneEvent` and
-    `RunResult`) is now every per-pass text joined with blank lines.
-    Corollary: usage a tool reports through the seam (a sub-agent's spend)
-    now also emits a `UsageEvent`, giving the stream the invariant
-    `sum(UsageEvents) == DoneEvent.usage`. A sticky `truncated` flag on
-    `DoneEvent`/`RunResult` surfaces max-tokens cutoffs (any pass) that
-    were previously only logged.
+10. **⚠ `text` is the transcript; `output` is the answer.** The original
+    build kept only the final iteration's text, so an agent that speaks
+    before its tool calls lost those sentences from the result — the
+    streamed transcript and the persisted text disagreed, violating §6's
+    "single source of truth," and the first consumer coupled to UsageEvent
+    ordering to reassemble it. `text` (on `DoneEvent` and `RunResult`) is
+    now every per-pass text joined with blank lines. The *deliverable*
+    deliberately did not follow: for `output_type=str` runs, `output` (and
+    therefore `as_tool()` text results, graph `agent_step` state, and what
+    the eval scorers score) remains the final pass — the answer, not the
+    narration; joining the transcript into the deliverable would leak
+    "Let me check that." into drafts, eval haystacks, and sub-agent tool
+    results. Corollary: usage a tool reports through the seam (a
+    sub-agent's spend) now also emits a `UsageEvent`, giving the stream
+    the invariant `sum(UsageEvents) == DoneEvent.usage`. A sticky
+    `truncated` flag on `DoneEvent`/`RunResult` surfaces max-tokens
+    cutoffs (any pass, including a sub-agent's via
+    `ToolResult.truncated`) that were previously only logged.
 11. **⚠ The uniform error contract (§4) now covers models, not just
     tools.** The v1 build sanitized tool failures but let model-provider
     exceptions cross the "provider-neutral" boundary raw, so retry/backoff

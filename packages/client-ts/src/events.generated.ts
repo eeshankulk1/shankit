@@ -94,13 +94,14 @@ export interface ErrorEvent {
 /**
  * Terminal event: the run finished.
  *
- * ``text`` is every assistant text pass of the run joined with blank
- * lines — the same transcript the ``text_delta`` events streamed — not
- * just the final pass. ``output`` is set only when the run produced a
- * structured deliverable; for a plain streamed conversation it is
- * ``None``. ``truncated`` is true if any model pass of the run stopped at
- * the token limit, meaning the answer (or a tool call's input) may be
- * incomplete.
+ * ``text`` is the transcript: every assistant text pass of the run — the
+ * same content the ``text_delta`` events streamed — joined with blank
+ * lines (the deltas themselves carry no separator between passes).
+ * ``output`` is set only when the run produced a deliverable (for
+ * ``output_type=str`` runs, the final pass's text); for a plain streamed
+ * conversation it is ``None``. ``truncated`` is true if any model pass of
+ * the run (or of a sub-agent run reporting through the tool seam) stopped
+ * at the token limit, meaning the result may be incomplete.
  */
 export interface DoneEvent {
   type: "done";

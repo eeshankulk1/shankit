@@ -20,8 +20,7 @@ from typing import Union
 
 from pydantic import BaseModel
 
-from .events import ErrorEvent
-from .exceptions import ModelError, ShankitError, error_code
+from .events import error_event_for
 
 __all__ = ["format_sse", "sse_stream"]
 
@@ -43,12 +42,15 @@ async def sse_stream(
     HTTP response mid-stream; framework errors already surface as ``error``
     events from ``Agent.stream``. Pass ``errors="raise"`` to propagate.
     """
+    errored = False
     try:
         async for event in events:
+            errored = getattr(event, "type", None) == "error"
             yield format_sse(event)
     except Exception as exc:
         if errors == "raise":
             raise
-        message = str(exc) if isinstance(exc, ShankitError) else "The run failed unexpectedly."
-        retryable = exc.retryable if isinstance(exc, ModelError) else False
-        yield format_sse(ErrorEvent(message=message, code=error_code(exc), retryable=retryable))
+        if not errored:
+            # Agent.stream yields its own terminal error event before
+            # re-raising an unexpected exception; don't emit a second one.
+            yield format_sse(error_event_for(exc))

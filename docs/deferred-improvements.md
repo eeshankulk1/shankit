@@ -20,13 +20,16 @@ needs it today. throu is the consumer motivating every item below.
 
 ## 1. Iteration-boundary semantics for streamed text
 
-> **Status: implemented — option (a).** `DoneEvent.text` / `RunResult.text`
-> are now every per-pass text joined with `"\n\n"`. Options (b) and (c) were
-> rejected: with the full transcript on `done`, throu has no remaining need
-> for a boundary signal, so `IterationEvent` / `texts: list[str]` would be
-> API surface with no consumer. Known caveat, accepted deliberately: a
-> sub-agent's `as_tool()` text answer now also includes any interim
-> acknowledgment passes.
+> **Status: implemented — option (a), refined.** `DoneEvent.text` /
+> `RunResult.text` are now every per-pass text joined with `"\n\n"` (the
+> transcript). The *deliverable* stayed the final pass: `output` for
+> `output_type=str` runs — and therefore `as_tool()` text results, graph
+> `agent_step` state, and what the eval scorers score — is the answer, not
+> the narration, so interim acknowledgments never leak into drafts, tool
+> results, or eval haystacks. Options (b) and (c) were rejected: with the
+> full transcript on `done`, throu has no remaining need for a boundary
+> signal, so `IterationEvent` / `texts: list[str]` would be API surface
+> with no consumer.
 
 **Problem.** `DoneEvent.text` (and `RunResult.text`) carry only the LAST
 model pass's text - `agent.py` overwrites `final_text` each iteration. An

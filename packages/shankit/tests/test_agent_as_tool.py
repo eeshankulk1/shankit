@@ -44,6 +44,39 @@ async def test_parent_delegates_to_sub_agent(make_agent):
     assert [s.title for s in result.sources] == ["wiki"]
 
 
+async def test_sub_agent_interim_text_stays_off_tool_result(make_agent):
+    """The parent gets the sub-agent's answer, not its narration passes."""
+
+    @tool
+    def lookup() -> str:
+        return "raw"
+
+    sub = make_sub(
+        [tool_call_response("lookup", {}, text="Let me look."), text_response("sub-answer")],
+        tools=[lookup],
+    )
+    parent, _ = make_agent(
+        [tool_call_response("researcher", {"task": "t"}), text_response("done")],
+        tools=[sub.as_tool()],
+    )
+    result = await parent.run("go", output_type=str)
+    assert result.trajectory[0].content == "sub-answer"
+
+
+async def test_sub_agent_truncation_propagates(make_agent):
+    """A sub-agent run cut off at max_tokens taints the parent's truncated
+    flag through the tool seam, the same way its usage flows up."""
+    cut = text_response("half an ans")
+    cut.stop_reason = "max_tokens"
+    sub = make_sub([cut])
+    parent, _ = make_agent(
+        [tool_call_response("researcher", {"task": "t"}), text_response("done")],
+        tools=[sub.as_tool()],
+    )
+    result = await parent.run("go", output_type=str)
+    assert result.truncated
+
+
 async def test_sub_agent_failure_sanitized(make_agent):
     class ExplodingModel(FakeModel):
         async def complete(self, request):

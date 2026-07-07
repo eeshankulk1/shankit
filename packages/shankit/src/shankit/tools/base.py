@@ -39,13 +39,16 @@ class ToolResult(BaseModel):
 
     ``content`` is what the model sees. ``sources`` surface citations to the
     event stream. ``usage`` lets a tool that itself spends tokens (e.g. a
-    sub-agent) report them for accounting in the parent run.
+    sub-agent) report them for accounting in the parent run. ``truncated``
+    marks ``content`` as cut off (e.g. a sub-agent run that hit its token
+    limit); the parent run's sticky ``truncated`` flag picks it up.
     """
 
     content: str
     is_error: bool = False
     sources: list[Source] = Field(default_factory=list)
     usage: Optional[Usage] = None
+    truncated: bool = False
 
 
 class ToolSource(abc.ABC):

@@ -49,6 +49,12 @@ async def call_scorer(scorer: Scorer, case: Any, result: RunResult) -> Score:
 # ---------------------------------------------------------------- built-ins
 
 
+def _dump(output: Any) -> str:
+    if isinstance(output, BaseModel):
+        return output.model_dump_json()
+    return str(output)
+
+
 def exact_match(case: Any, result: RunResult) -> Score:
     """Pass iff ``result.output`` equals ``case.expected`` (pydantic outputs
     compare by their dict dump)."""
@@ -61,11 +67,17 @@ def exact_match(case: Any, result: RunResult) -> Score:
 
 def output_contains(substring: Optional[str] = None) -> Scorer:
     """Pass iff the substring (or ``case.expected`` when omitted) appears in
-    the result text/output."""
+    the result's deliverable.
+
+    Scores ``result.output`` (falling back to ``result.text`` when there is
+    no output) — the answer, not the full transcript, so an agent that
+    merely *mentions* the expected string in an interim pass before
+    answering something else does not pass.
+    """
 
     def scorer(case: Any, result: RunResult) -> Score:
         needle = substring if substring is not None else str(case.expected)
-        haystack = result.text or str(result.output)
+        haystack = _dump(result.output) if result.output is not None else result.text
         passed = needle in haystack
         return Score(name="output_contains", value=1.0 if passed else 0.0, passed=passed)
 
@@ -100,12 +112,13 @@ def llm_judge(
     )
 
     async def scorer(case: Any, result: RunResult) -> Score:
-        output = result.output
-        if isinstance(output, BaseModel):
-            output = output.model_dump_json()
+        # Judge the deliverable, not the transcript: interim narration
+        # passes would otherwise shift scores on rubrics about format or
+        # conciseness without the agent's answer changing.
+        candidate = _dump(result.output) if result.output is not None else result.text
         verdict = await judge.run(
             f"Rubric: {rubric}\n\nTask input: {case.input}\n\n"
-            f"Candidate response:\n{result.text or output}"
+            f"Candidate response:\n{candidate}"
         )
         return Score(
             name="llm_judge",
