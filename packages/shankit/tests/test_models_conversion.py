@@ -62,6 +62,25 @@ def test_anthropic_parse_message():
     assert response.usage.requests == 1
 
 
+def test_anthropic_parse_message_cache_tokens():
+    """Cache reads AND cache writes both land on Usage; with prompt caching
+    on, the API excludes cache-written tokens from input_tokens, so dropping
+    them would undercount nearly the whole prompt on cache-writing calls."""
+    message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="ok")],
+        stop_reason="end_turn",
+        usage=SimpleNamespace(
+            input_tokens=4,
+            output_tokens=7,
+            cache_read_input_tokens=1000,
+            cache_creation_input_tokens=2500,
+        ),
+    )
+    usage = parse_message(message).usage
+    assert usage.cache_read_tokens == 1000
+    assert usage.cache_write_tokens == 2500
+
+
 # ------------------------------------------------------------------ openai
 
 

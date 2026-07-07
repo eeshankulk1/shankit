@@ -15,6 +15,7 @@ class FakeComposio:
 
     def __init__(self):
         self.executed = []
+        self.raw_tool_queries = []
         self.tools = SimpleNamespace(
             get_raw_composio_tools=self._get_raw_tools, execute=self._execute
         )
@@ -23,8 +24,16 @@ class FakeComposio:
         )
         self.account_status = "INITIATED"
 
-    def _get_raw_tools(self, toolkits):
+    def _get_raw_tools(self, tools=None, toolkits=None):
+        self.raw_tool_queries.append({"tools": tools, "toolkits": toolkits})
+        catalog = self._catalog()
+        if tools is not None:
+            by_slug = {(t["slug"] if isinstance(t, dict) else t.slug): t for t in catalog}
+            return [by_slug[slug] for slug in tools if slug in by_slug]
         assert toolkits == ["GMAIL"]
+        return catalog
+
+    def _catalog(self):
         return [
             {
                 "slug": "GMAIL_SEND_EMAIL",
@@ -80,6 +89,10 @@ async def test_allowlist_filters_tools():
     )
     defs = await connector.list_tools()
     assert [d.name for d in defs] == ["GMAIL_SEARCH"]
+    # An allowlisted connector fetches exactly its slugs, not the whole toolkit.
+    assert connector._client.raw_tool_queries == [
+        {"tools": ["GMAIL_SEARCH"], "toolkits": None}
+    ]
     with pytest.raises(ToolNotFoundError):
         await connector.execute("GMAIL_SEND_EMAIL", {"to": "x"})
 

@@ -113,3 +113,38 @@ async def test_framework_error_becomes_error_event(make_agent):
     events = await collect(agent.stream("go"))
     assert isinstance(events[-1], ErrorEvent)
     assert "max_iterations" in events[-1].message
+
+
+async def test_cancelled_stream_cancels_inflight_tools(make_agent):
+    """Abandoning a stream mid-turn must cancel in-flight tool tasks, not
+    orphan them to finish (and side-effect) in the background."""
+    import asyncio
+
+    state = {"started": False, "cancelled": False, "finished": False}
+
+    @tool
+    async def slow() -> str:
+        state["started"] = True
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        state["finished"] = True
+        return "done"
+
+    agent, _ = make_agent(
+        [tool_call_response("slow", {}), text_response("never reached")], tools=[slow]
+    )
+
+    async def consume():
+        async for _ in agent.stream("go"):
+            pass
+
+    task = asyncio.create_task(consume())
+    while not state["started"]:
+        await asyncio.sleep(0.005)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    await asyncio.sleep(0.01)
+    assert state["cancelled"] and not state["finished"]

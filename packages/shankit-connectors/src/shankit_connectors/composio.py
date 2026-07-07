@@ -87,9 +87,17 @@ class ComposioConnector(Connector):
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
         client = self._get_client()
-        raw_tools = await asyncio.to_thread(
-            client.tools.get_raw_composio_tools, toolkits=[self.toolkit]
-        )
+        if self._allowlist is not None:
+            # Fetch exactly the allowlisted slugs instead of the whole
+            # toolkit (toolkits can run to hundreds of tools) and filtering
+            # client-side.
+            raw_tools = await asyncio.to_thread(
+                client.tools.get_raw_composio_tools, tools=list(self._allowlist)
+            )
+        else:
+            raw_tools = await asyncio.to_thread(
+                client.tools.get_raw_composio_tools, toolkits=[self.toolkit]
+            )
         defs: list[ToolDef] = []
         for raw in raw_tools:
             slug = _field(raw, "slug") or _field(raw, "name")

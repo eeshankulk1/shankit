@@ -60,6 +60,15 @@ def test_usage_cache_read_is_additive():
     assert summed.cache_read_tokens == 3
 
 
+def test_usage_cache_write_is_additive():
+    total = Usage()
+    total.add(Usage(cache_write_tokens=1200, requests=1))
+    total.add(Usage(cache_write_tokens=300, requests=1))
+    assert total.cache_write_tokens == 1500
+    summed = Usage(cache_write_tokens=4) + Usage(cache_write_tokens=5)
+    assert summed.cache_write_tokens == 9
+
+
 # ------------------------------------------------- provider kwargs shape
 
 
