@@ -18,7 +18,7 @@ const SSE_BODY =
   'event: text_delta\ndata: {"type": "text_delta", "text": "lo"}\n\n' +
   'event: step\ndata: {"type": "step", "id": "s1", "title": "Searched", "detail": null, "phase": null, "status": "done"}\n\n' +
   'event: usage\ndata: {"type": "usage", "usage": {"input_tokens": 3, "output_tokens": 2, "requests": 1}}\n\n' +
-  'event: done\ndata: {"type": "done", "text": "hello", "output": null, "usage": {"input_tokens": 3, "output_tokens": 2, "requests": 1}}\n\n';
+  'event: done\ndata: {"type": "done", "text": "hello", "output": null, "usage": {"input_tokens": 3, "output_tokens": 2, "requests": 1}, "truncated": false}\n\n';
 
 test("parses a well-formed stream into typed events", async () => {
   const events = [];

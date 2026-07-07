@@ -91,13 +91,21 @@ class ToolCallRecord(BaseModel):
 
 @dataclass
 class RunResult(Generic[OutputT]):
-    """The deliverable of a structured run."""
+    """The deliverable of a structured run.
+
+    ``text`` is every assistant text pass of the run joined with blank
+    lines — the same transcript a streaming consumer assembles from
+    ``TextDeltaEvent``s — not just the last pass. ``truncated`` is sticky:
+    true if *any* model pass stopped at the token limit, since a truncated
+    intermediate pass can corrupt a run as much as a truncated answer.
+    """
 
     output: OutputT
     text: str
     usage: Usage
     trajectory: list[ToolCallRecord] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
+    truncated: bool = False
 
 
 class _OutputSpec:
@@ -245,6 +253,7 @@ class Agent:
                         usage=event.usage,
                         trajectory=trajectory,
                         sources=sources,
+                        truncated=event.truncated,
                     )
         raise ShankitError("Agent loop ended without a result.")  # pragma: no cover
 
@@ -324,7 +333,8 @@ class Agent:
             user_message(prompt),
         ]
         total_usage = Usage()
-        final_text = ""
+        texts: list[str] = []
+        truncated = False
         output_attempts = 0
         force_output = False
         step_counter = 0
@@ -357,6 +367,7 @@ class Agent:
             yield UsageEvent(usage=response.usage)
 
             if response.stop_reason == "max_tokens":
+                truncated = True
                 logger.warning(
                     "Agent %r: model response truncated at max_tokens=%d; "
                     "the answer (or a tool call's input) may be incomplete.",
@@ -368,7 +379,7 @@ class Agent:
             messages.append(assistant)
             turn_text = assistant_text(assistant)
             if turn_text:
-                final_text = turn_text
+                texts.append(turn_text)
 
             tool_uses = [b for b in assistant.content if isinstance(b, ToolUseBlock)]
 
@@ -388,8 +399,11 @@ class Agent:
                     )
                     force_output = True
                     continue
+                final_text = "\n\n".join(texts)
                 output = final_text if output_type is str else None
-                yield DoneEvent(text=final_text, output=output, usage=total_usage)
+                yield DoneEvent(
+                    text=final_text, output=output, usage=total_usage, truncated=truncated
+                )
                 return
 
             blocks_by_id: dict[str, ToolResultBlock] = {}
@@ -464,7 +478,11 @@ class Agent:
                     sources.append(source)
                     yield SourceEvent(source=source)
                 if result.usage is not None:
+                    # Usage a tool reports (e.g. a sub-agent's spend) is part
+                    # of the run total, so it must also be part of the stream:
+                    # UsageEvents always sum to DoneEvent.usage.
                     total_usage.add(result.usage)
+                    yield UsageEvent(usage=result.usage)
                 if info is not None:
                     yield StepEvent(
                         id=step_id,
@@ -484,7 +502,12 @@ class Agent:
             )
 
             if finished is not None:
-                yield DoneEvent(text=final_text, output=finished[0], usage=total_usage)
+                yield DoneEvent(
+                    text="\n\n".join(texts),
+                    output=finished[0],
+                    usage=total_usage,
+                    truncated=truncated,
+                )
                 return
 
         raise MaxIterationsError(
@@ -552,7 +575,8 @@ class Agent:
         its token usage is folded into the parent run's accounting.
 
         Args:
-            output: ``"text"`` (default) returns the sub-agent's final text;
+            output: ``"text"`` (default) returns the sub-agent's text
+                (every pass of its run, joined — see :class:`RunResult`);
                 ``"structured"`` runs against the agent's default output
                 schema and returns it as JSON.
         """

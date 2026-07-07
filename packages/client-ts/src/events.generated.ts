@@ -62,7 +62,11 @@ export interface SourceEvent {
 }
 
 /**
- * Incremental usage for one model call within the run.
+ * One usage increment within the run: a model call, or usage a tool
+ * reported (e.g. a sub-agent's spend surfacing through the tool seam).
+ *
+ * Invariant: the UsageEvents of a stream sum to ``DoneEvent.usage``, so a
+ * consumer can meter cost live without waiting for the terminal event.
  */
 export interface UsageEvent {
   type: "usage";
@@ -80,14 +84,20 @@ export interface ErrorEvent {
 /**
  * Terminal event: the run finished.
  *
- * ``output`` is set only when the run produced a structured deliverable;
- * for a plain streamed conversation it is ``None``.
+ * ``text`` is every assistant text pass of the run joined with blank
+ * lines — the same transcript the ``text_delta`` events streamed — not
+ * just the final pass. ``output`` is set only when the run produced a
+ * structured deliverable; for a plain streamed conversation it is
+ * ``None``. ``truncated`` is true if any model pass of the run stopped at
+ * the token limit, meaning the answer (or a tool call's input) may be
+ * incomplete.
  */
 export interface DoneEvent {
   type: "done";
   text: string;
   output: unknown;
   usage: Usage;
+  truncated: boolean;
 }
 
 /** Every event a shankit agent stream can emit. A stream ends with

@@ -96,6 +96,30 @@ async def test_str_output_type(make_agent):
     assert result.text == "plain answer"
 
 
+async def test_run_text_keeps_interim_passes(make_agent):
+    agent, _ = make_agent(
+        [
+            tool_call_response("add", {"a": 2, "b": 3}, text="Let me add those."),
+            text_response("The sum is 5."),
+        ],
+        tools=[add],
+    )
+    result = await agent.run("go", output_type=str)
+    assert result.text == "Let me add those.\n\nThe sum is 5."
+    assert result.output == result.text
+
+
+async def test_run_reports_truncation(make_agent):
+    async def run_with_stop(stop_reason):
+        response = text_response("an answer")
+        response.stop_reason = stop_reason
+        agent, _ = make_agent([response])
+        return await agent.run("go", output_type=str)
+
+    assert not (await run_with_stop("end_turn")).truncated
+    assert (await run_with_stop("max_tokens")).truncated
+
+
 async def test_run_without_schema_rejected(make_agent):
     agent, _ = make_agent([text_response("x")])
     with pytest.raises(ShankitError, match="output schema"):
