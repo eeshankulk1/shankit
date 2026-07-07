@@ -443,3 +443,33 @@ where the original text had a gap (flagged ⚠):
 9. **Naming (§13) remains open** — everything ships under the working name
    `shankit` / `@shankit/client`; renaming before first release is a
    find-replace plus package metadata.
+
+10. **⚠ `DoneEvent.text` is the full transcript, not the last pass.** The
+    original build kept only the final iteration's text, so an agent that
+    speaks before its tool calls lost those sentences from the result —
+    the streamed transcript and the persisted text disagreed, violating
+    §6's "single source of truth," and the first consumer coupled to
+    UsageEvent ordering to reassemble it. `text` (on `DoneEvent` and
+    `RunResult`) is now every per-pass text joined with blank lines.
+    Corollary: usage a tool reports through the seam (a sub-agent's spend)
+    now also emits a `UsageEvent`, giving the stream the invariant
+    `sum(UsageEvents) == DoneEvent.usage`. A sticky `truncated` flag on
+    `DoneEvent`/`RunResult` surfaces max-tokens cutoffs (any pass) that
+    were previously only logged.
+11. **⚠ The uniform error contract (§4) now covers models, not just
+    tools.** The v1 build sanitized tool failures but let model-provider
+    exceptions cross the "provider-neutral" boundary raw, so retry/backoff
+    meant importing provider SDK exception types. Failed model calls now
+    surface as `ModelError` (`provider` / `status` / `retryable`, original
+    exception chained): shipped clients map their own SDK's exceptions —
+    the client knows which of its failures are transient — and the loop
+    wraps anything a custom client leaks. `ErrorEvent` carries `code` (an
+    open string, so new codes are additive) and `retryable`. Messages stay
+    human-safe; detail lives on `__cause__`.
+12. **Connector conveniences stay escape-hatch-shaped.** The official
+    Composio connector gained an opt-in `tools_cache_ttl` (the catalog
+    doesn't depend on per-run context; a warmup hook was rejected because
+    warming *is* calling `list_tools` once) and a `transform_result`
+    subclass point for slimming vendor payloads. `ConnectionStatus` gained
+    a vendor-neutral `account_id`. Nothing new was added to the base
+    `Connector` contract's method set.

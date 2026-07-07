@@ -16,7 +16,7 @@ from typing import Optional
 from ..exceptions import ShankitError
 from .base import ModelClient
 
-__all__ = ["register_provider", "resolve_model"]
+__all__ = ["register_provider", "resolve_model", "shutdown"]
 
 ProviderFactory = Callable[[], ModelClient]
 
@@ -68,3 +68,18 @@ def resolve_model(spec: str, client: Optional[ModelClient] = None) -> tuple[Mode
     if provider not in _CLIENT_CACHE:
         _CLIENT_CACHE[provider] = factory()
     return _CLIENT_CACHE[provider], model_id
+
+
+async def shutdown() -> None:
+    """Close and forget every cached provider client.
+
+    Resolved clients are cached for the process lifetime, which is right
+    for servers but leaks unclosed-transport warnings in short-lived
+    scripts. Call ``await shankit.models.shutdown()`` at the end of such
+    scripts; the next ``resolve_model`` after a shutdown simply constructs
+    fresh clients.
+    """
+    clients = list(_CLIENT_CACHE.values())
+    _CLIENT_CACHE.clear()
+    for client in clients:
+        await client.aclose()

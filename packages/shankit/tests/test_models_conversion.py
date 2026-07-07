@@ -198,3 +198,22 @@ def test_resolve_model_with_explicit_client():
     client, model_id = resolve_model("anything-goes", fake)
     assert client is fake
     assert model_id == "anything-goes"
+
+
+async def test_shutdown_closes_and_clears_cached_clients():
+    from conftest import FakeModel
+    from shankit.models.registry import shutdown
+
+    class ClosableModel(FakeModel):
+        closed = False
+
+        async def aclose(self):
+            self.closed = True
+
+    register_provider("closetest", lambda: ClosableModel([]))
+    client, _ = resolve_model("closetest:model-x")
+    await shutdown()
+    assert client.closed
+    # the cache was cleared: the next resolve constructs a fresh client
+    client2, _ = resolve_model("closetest:model-x")
+    assert client2 is not client
