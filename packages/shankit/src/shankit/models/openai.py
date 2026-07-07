@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
-from ..exceptions import ShankitError
+from ..exceptions import ModelError, ShankitError
 from ..messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
 from ..usage import Usage
 from .base import (
@@ -17,6 +17,8 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    map_sdk_error,
+    wrap_sdk_errors,
 )
 
 __all__ = ["OpenAIModel"]
@@ -50,7 +52,8 @@ class OpenAIModel(ModelClient):
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
-        response = await client.chat.completions.create(**build_kwargs(request))
+        with wrap_sdk_errors(_map_error):
+            response = await client.chat.completions.create(**build_kwargs(request))
         return parse_completion(response)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
@@ -58,36 +61,37 @@ class OpenAIModel(ModelClient):
         kwargs = build_kwargs(request)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
-        stream = await client.chat.completions.create(**kwargs)
 
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: Optional[str] = None
         usage = Usage(requests=1)
-        async for chunk in stream:
-            if getattr(chunk, "usage", None):
-                usage.input_tokens = chunk.usage.prompt_tokens or 0
-                usage.output_tokens = chunk.usage.completion_tokens or 0
-                usage.cache_read_tokens = _cached_tokens(chunk.usage)
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            if choice.finish_reason:
-                finish_reason = choice.finish_reason
-            delta = choice.delta
-            if delta is None:
-                continue
-            if delta.content:
-                text_parts.append(delta.content)
-                yield ModelTextDelta(text=delta.content)
-            for tc in delta.tool_calls or []:
-                acc = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
-                if tc.id:
-                    acc["id"] = tc.id
-                if tc.function and tc.function.name:
-                    acc["name"] = tc.function.name
-                if tc.function and tc.function.arguments:
-                    acc["arguments"] += tc.function.arguments
+        with wrap_sdk_errors(_map_error):
+            stream = await client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage.input_tokens = chunk.usage.prompt_tokens or 0
+                    usage.output_tokens = chunk.usage.completion_tokens or 0
+                    usage.cache_read_tokens = _cached_tokens(chunk.usage)
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta
+                if delta is None:
+                    continue
+                if delta.content:
+                    text_parts.append(delta.content)
+                    yield ModelTextDelta(text=delta.content)
+                for tc in delta.tool_calls or []:
+                    acc = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                    if tc.id:
+                        acc["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        acc["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        acc["arguments"] += tc.function.arguments
 
         content: list[ContentBlock] = []
         text = "".join(text_parts)
@@ -110,6 +114,18 @@ class OpenAIModel(ModelClient):
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "close"):
             await self._client.close()
+
+
+def _map_error(exc: Exception) -> Optional[ModelError]:
+    import openai
+
+    return map_sdk_error(
+        exc,
+        provider="openai",
+        status_error=openai.APIStatusError,
+        connection_error=openai.APIConnectionError,  # includes APITimeoutError
+        base_error=openai.OpenAIError,
+    )
 
 
 def build_kwargs(request: ModelRequest) -> dict[str, Any]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Optional
 
-from ..exceptions import ShankitError
+from ..exceptions import ModelError, ShankitError
 from ..messages import ContentBlock, TextBlock, ToolUseBlock
 from ..usage import Usage
 from .base import (
@@ -16,6 +16,8 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    map_sdk_error,
+    wrap_sdk_errors,
 )
 
 __all__ = ["AnthropicModel"]
@@ -64,24 +66,38 @@ class AnthropicModel(ModelClient):
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
-        message = await client.messages.create(
-            **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
-        )
+        with wrap_sdk_errors(_map_error):
+            message = await client.messages.create(
+                **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+            )
         return parse_message(message)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         client = self._get_client()
         kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
-        async with client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                if text:
-                    yield ModelTextDelta(text=text)
-            final = await stream.get_final_message()
+        with wrap_sdk_errors(_map_error):
+            async with client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    if text:
+                        yield ModelTextDelta(text=text)
+                final = await stream.get_final_message()
         yield ModelResponseComplete(response=parse_message(final))
 
     async def aclose(self) -> None:
         if self._client is not None and hasattr(self._client, "close"):
             await self._client.close()
+
+
+def _map_error(exc: Exception) -> Optional[ModelError]:
+    import anthropic
+
+    return map_sdk_error(
+        exc,
+        provider="anthropic",
+        status_error=anthropic.APIStatusError,
+        connection_error=anthropic.APIConnectionError,  # includes APITimeoutError
+        base_error=anthropic.AnthropicError,
+    )
 
 
 def build_kwargs(

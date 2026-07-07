@@ -62,7 +62,11 @@ export interface SourceEvent {
 }
 
 /**
- * Incremental usage for one model call within the run.
+ * One usage increment within the run: a model call, or usage a tool
+ * reported (e.g. a sub-agent's spend surfacing through the tool seam).
+ *
+ * Invariant: the UsageEvents of a stream sum to ``DoneEvent.usage``, so a
+ * consumer can meter cost live without waiting for the terminal event.
  */
 export interface UsageEvent {
   type: "usage";
@@ -71,23 +75,40 @@ export interface UsageEvent {
 
 /**
  * Terminal event: the run failed.
+ *
+ * ``message`` is human-safe and may be shown to end users. ``code`` says
+ * *what kind* of failure without parsing the message; the codes emitted
+ * today are ``model_error`` (the model provider call failed),
+ * ``max_iterations``, ``output_validation``, ``error`` (other framework
+ * errors), and ``unexpected`` — the field stays an open string so new
+ * codes are not a breaking change. ``retryable`` is true when retrying
+ * the run shortly is reasonable (rate limits, provider overloads).
  */
 export interface ErrorEvent {
   type: "error";
   message: string;
+  code: string;
+  retryable: boolean;
 }
 
 /**
  * Terminal event: the run finished.
  *
- * ``output`` is set only when the run produced a structured deliverable;
- * for a plain streamed conversation it is ``None``.
+ * ``text`` is the transcript: every assistant text pass of the run — the
+ * same content the ``text_delta`` events streamed — joined with blank
+ * lines (the deltas themselves carry no separator between passes).
+ * ``output`` is set only when the run produced a deliverable (for
+ * ``output_type=str`` runs, the final pass's text); for a plain streamed
+ * conversation it is ``None``. ``truncated`` is true if any model pass of
+ * the run (or of a sub-agent run reporting through the tool seam) stopped
+ * at the token limit, meaning the result may be incomplete.
  */
 export interface DoneEvent {
   type: "done";
   text: string;
   output: unknown;
   usage: Usage;
+  truncated: boolean;
 }
 
 /** Every event a shankit agent stream can emit. A stream ends with

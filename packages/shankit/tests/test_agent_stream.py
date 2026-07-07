@@ -1,11 +1,13 @@
-from conftest import text_response, tool_call_response
+from conftest import FakeModel, text_response, tool_call_response
 from shankit import (
+    Agent,
     DoneEvent,
     ErrorEvent,
     SourceEvent,
     StepEvent,
     TextDeltaEvent,
     ToolResult,
+    Usage,
     UsageEvent,
     tool,
 )
@@ -27,6 +29,67 @@ async def test_stream_text_and_done(make_agent):
     assert events[-1].text == "hello world"
     assert events[-1].output is None  # streaming mode: no structured deliverable
     assert any(isinstance(e, UsageEvent) for e in events)
+
+
+async def test_interim_text_joins_into_done_text(make_agent):
+    """A pass that says something before calling tools keeps that text in the
+    final result — the streamed transcript and the persisted text agree."""
+
+    @tool
+    def check() -> str:
+        return "ok"
+
+    agent, _ = make_agent(
+        [
+            tool_call_response("check", {}, text="Let me check that."),
+            text_response("The answer is 5."),
+        ],
+        tools=[check],
+    )
+    events = await collect(agent.stream("go"))
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.text == "Let me check that.\n\nThe answer is 5."
+    streamed = "".join(e.text for e in events if isinstance(e, TextDeltaEvent))
+    assert streamed == "Let me check that." + "The answer is 5."
+
+
+async def test_usage_events_sum_to_done_usage(make_agent):
+    """Sub-agent usage arrives through the tool seam; it must be part of the
+    stream too, so summing UsageEvents always matches DoneEvent.usage."""
+    sub = Agent(
+        name="helper", model="fake", model_client=FakeModel([text_response("sub answer")])
+    )
+    agent, _ = make_agent(
+        [tool_call_response("helper", {"task": "t"}), text_response("done")],
+        tools=[sub.as_tool()],
+    )
+    events = await collect(agent.stream("go"))
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    streamed = Usage()
+    for event in events:
+        if isinstance(event, UsageEvent):
+            streamed.add(event.usage)
+    assert streamed == done.usage
+    assert streamed.requests == 3  # two parent passes + one sub-agent pass
+
+
+async def test_truncated_pass_marks_done_event(make_agent):
+    """Truncation is sticky: a cut-off intermediate pass taints the run even
+    when the final pass ends cleanly."""
+
+    @tool
+    def check() -> str:
+        return "ok"
+
+    first = tool_call_response("check", {})
+    first.stop_reason = "max_tokens"
+    agent, _ = make_agent([first, text_response("fine")], tools=[check])
+    events = await collect(agent.stream("go"))
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.truncated
 
 
 async def test_stream_narrates_steps(make_agent):
@@ -113,6 +176,8 @@ async def test_framework_error_becomes_error_event(make_agent):
     events = await collect(agent.stream("go"))
     assert isinstance(events[-1], ErrorEvent)
     assert "max_iterations" in events[-1].message
+    assert events[-1].code == "max_iterations"
+    assert not events[-1].retryable
 
 
 async def test_cancelled_stream_cancels_inflight_tools(make_agent):

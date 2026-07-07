@@ -26,6 +26,7 @@ __all__ = [
     "DoneEvent",
     "AgentEvent",
     "agent_event_adapter",
+    "error_event_for",
 ]
 
 
@@ -73,36 +74,71 @@ class SourceEvent(BaseModel):
 
 
 class UsageEvent(BaseModel):
-    """Incremental usage for one model call within the run."""
+    """One usage increment within the run: a model call, or usage a tool
+    reported (e.g. a sub-agent's spend surfacing through the tool seam).
+
+    Invariant: the UsageEvents of a stream sum to ``DoneEvent.usage``, so a
+    consumer can meter cost live without waiting for the terminal event.
+    """
 
     type: Literal["usage"] = "usage"
     usage: Usage
 
 
 class ErrorEvent(BaseModel):
-    """Terminal event: the run failed."""
+    """Terminal event: the run failed.
+
+    ``message`` is human-safe and may be shown to end users. ``code`` says
+    *what kind* of failure without parsing the message; the codes emitted
+    today are ``model_error`` (the model provider call failed),
+    ``max_iterations``, ``output_validation``, ``error`` (other framework
+    errors), and ``unexpected`` — the field stays an open string so new
+    codes are not a breaking change. ``retryable`` is true when retrying
+    the run shortly is reasonable (rate limits, provider overloads).
+    """
 
     type: Literal["error"] = "error"
     message: str
+    code: str = "unexpected"
+    retryable: bool = False
 
 
 class DoneEvent(BaseModel):
     """Terminal event: the run finished.
 
-    ``output`` is set only when the run produced a structured deliverable;
-    for a plain streamed conversation it is ``None``.
+    ``text`` is the transcript: every assistant text pass of the run — the
+    same content the ``text_delta`` events streamed — joined with blank
+    lines (the deltas themselves carry no separator between passes).
+    ``output`` is set only when the run produced a deliverable (for
+    ``output_type=str`` runs, the final pass's text); for a plain streamed
+    conversation it is ``None``. ``truncated`` is true if any model pass of
+    the run (or of a sub-agent run reporting through the tool seam) stopped
+    at the token limit, meaning the result may be incomplete.
     """
 
     type: Literal["done"] = "done"
     text: str = ""
     output: Any = None
     usage: Usage = Field(default_factory=Usage)
+    truncated: bool = False
 
 
 AgentEvent = Annotated[
     Union[TextDeltaEvent, StepEvent, SourceEvent, UsageEvent, ErrorEvent, DoneEvent],
     Field(discriminator="type"),
 ]
+
+
+def error_event_for(exc: BaseException) -> ErrorEvent:
+    """The one place an exception becomes a terminal ``error`` event, so the
+    stream and SSE paths cannot drift: framework errors keep their (already
+    human-safe) message, anything else is sanitized, and code/retryable come
+    from the exception's type."""
+    from .exceptions import ModelError, ShankitError, error_code
+
+    message = str(exc) if isinstance(exc, ShankitError) else "The run failed unexpectedly."
+    retryable = exc.retryable if isinstance(exc, ModelError) else False
+    return ErrorEvent(message=message, code=error_code(exc), retryable=retryable)
 
 
 def agent_event_adapter() -> TypeAdapter[Any]:

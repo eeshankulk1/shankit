@@ -10,9 +10,26 @@ The guiding constraint stays the same as the framework's founding rule: never
 more than one real usage ahead, and no abstraction without a consumer that
 needs it today. throu is the consumer motivating every item below.
 
+> **Disposition (July 2026 follow-up pass).** Each item now carries a
+> **Status** line. Items 1, 2, 4, and most of 3 and 6 were implemented (see
+> design.md §14 entries 10-12 for the decision-record side); the warmup hook
+> and item 5 were rejected/deferred per the over-abstraction caution below;
+> the Composio schema-cache idea turned out to be mooted by the SDK itself.
+
 ---
 
 ## 1. Iteration-boundary semantics for streamed text
+
+> **Status: implemented — option (a), refined.** `DoneEvent.text` /
+> `RunResult.text` are now every per-pass text joined with `"\n\n"` (the
+> transcript). The *deliverable* stayed the final pass: `output` for
+> `output_type=str` runs — and therefore `as_tool()` text results, graph
+> `agent_step` state, and what the eval scorers score — is the answer, not
+> the narration, so interim acknowledgments never leak into drafts, tool
+> results, or eval haystacks. Options (b) and (c) were rejected: with the
+> full transcript on `done`, throu has no remaining need for a boundary
+> signal, so `IterationEvent` / `texts: list[str]` would be API surface
+> with no consumer.
 
 **Problem.** `DoneEvent.text` (and `RunResult.text`) carry only the LAST
 model pass's text - `agent.py` overwrites `final_text` each iteration. An
@@ -38,6 +55,15 @@ persisted text become the same string by construction.
 
 ## 2. Typed model-error contract
 
+> **Status: implemented as sketched.** `ModelError(provider, status,
+> retryable)`; the shipped clients map their own SDK exceptions
+> (`model_error_for_status` shares the HTTP mapping); the loop wraps
+> anything a custom client leaks; `ErrorEvent` gained `code` (open string:
+> `model_error` / `max_iterations` / `output_validation` / `error` /
+> `unexpected`) and `retryable`. The per-request retry policy follow-on
+> stays deferred — the provider SDKs already retry transient failures, and
+> no throu usage demands run-level mid-loop retries yet.
+
 **Problem.** The "provider-neutral" boundary leaks raw provider exceptions:
 `Agent.run()` propagates `anthropic.RateLimitError` / `openai.APIStatusError`
 as-is, so callers wanting retry/backoff must import provider SDK exception
@@ -60,6 +86,20 @@ route contract (`orchestrator.py` W3), losing everything else.
 message is what consumers show users. TS regen required.
 
 ## 3. ComposioConnector: caching + result hooks (delete throu's override)
+
+> **Status: partially implemented.**
+> - `tools_cache_ttl` — done (opt-in, default `None`).
+> - Schema-cache-aware execute — **moot**: verified against composio 0.17.1
+>   that `Tools.execute()` now checks its per-slug schema cache first and
+>   only fetches on a miss, so only the *first* execution of each slug pays
+>   the extra round-trip. Not worth coupling to SDK private internals.
+> - `ConnectionStatus.account_id` — done, named vendor-neutrally (the base
+>   lifecycle contract shouldn't speak Composio's vocabulary). throu should
+>   re-check whether this covers its `extra="allow"` smuggling.
+> - `transform_result` — done, as a documented subclass point (an escape
+>   hatch, not a constructor hook).
+> - Warmup hook — **rejected**: with the TTL cache, warmup is just calling
+>   `list_tools()` once at startup; `find_active_account` is throu policy.
 
 **Problem.** throu's `ThrouComposioConnector` overrides essentially the whole
 seam of the official connector (`list_tools`, `execute`, `initiate`,
@@ -94,6 +134,11 @@ slugs + Gmail slimming - inherit behavior, not just shape.
 
 ## 4. UsageEvent completeness (streamed usage == final usage)
 
+> **Status: implemented** (in the same change as item 1, which unblocked
+> it). Tool-reported usage now emits a `UsageEvent`; the invariant
+> `sum(UsageEvents) == DoneEvent.usage` is documented on the event and
+> asserted in the test suite.
+
 **Problem.** Sub-agent usage arriving via `ToolResult.usage` is folded into
 the run total silently (`agent.py` ~line 434) - no `UsageEvent` is emitted.
 A streaming consumer summing `UsageEvent`s undercounts vs `DoneEvent.usage`.
@@ -104,6 +149,16 @@ A streaming consumer summing `UsageEvent`s undercounts vs `DoneEvent.usage`.
 `sum(UsageEvents) == DoneEvent.usage`.
 
 ## 5. `Agent.as_tool()` parameter passthrough + event hook
+
+> **Status: deferred (leaning reject), per this item's own caution.**
+> (a) Parameter passthrough mapped to model/instructions selection is
+> throu's lookup/write policy, which design §10 explicitly keeps out of the
+> framework. (b) An `on_event` hook is nearly free to add — `run()` already
+> takes `on_event=` — but with concurrent sub-agent calls throu would need
+> to correlate forwarded events to a parent step, and the tool seam doesn't
+> expose the tool_use id; a naive hook wouldn't actually let throu delete
+> `ConsultToolSource`. Revisit only with throu code in hand showing the
+> hook alone deletes real duplication.
 
 **Problem.** throu's `ConsultToolSource` exists mostly for policy (intent
 routing, per-turn dedup, live sub-step forwarding, source pills) - that's
@@ -123,14 +178,21 @@ it if the passthrough design stays dead simple. Fine to reject.
   `stop_reason == "max_tokens"`; consumers still can't see it. A
   `truncated: bool` on `DoneEvent` is one field + TS regen - held back only
   to keep PR #3 schema-neutral.
+  **Status: done** — sticky (true if *any* pass truncated, since a cut-off
+  intermediate tool call corrupts a run too), mirrored onto `RunResult`.
 - `models/registry.py` `_CLIENT_CACHE` clients are never `aclose()`d - fine
   for servers, leaks warnings in short-lived scripts. A `shutdown()` helper
   or docs note.
+  **Status: done** — `shankit.models.shutdown()`.
 - `AnthropicModel.parse_message` silently drops thinking / server-tool
   blocks; worth stating in the ModelClient boundary contract docstring.
+  **Status: done** — stated in the `models.base` contract docstring.
 - Token estimation: throu keeps a `_CHARS_PER_TOKEN = 4` heuristic in two
   places (orchestrator, compaction). If the framework ever grows a token
   estimator, both adopt it; until then this is throu's to unify.
+  **Status: still throu's** — correctly rejected under the founding rule.
 - Test gaps in the core suite: non-object output schemas beyond the PR #3
   cases, provider-exception behavior in `run()` (blocked on item 2), stream
   `aclose()` (vs task-cancel) semantics.
+  **Status: provider-exception behavior covered** (with item 2, in
+  `test_model_errors.py`); the remaining two stay open.

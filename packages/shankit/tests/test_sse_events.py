@@ -45,6 +45,21 @@ async def test_sse_stream_sanitizes_unexpected_errors():
     assert "unexpectedly" in chunks[1]
 
 
+async def test_sse_stream_single_terminal_error():
+    """Agent.stream yields its own error event before re-raising unexpected
+    exceptions; sse_stream must not append a second terminal error."""
+    from shankit import ErrorEvent
+
+    async def events():
+        yield TextDeltaEvent(text="a")
+        yield ErrorEvent(message="already terminal", code="unexpected")
+        raise RuntimeError("re-raised after the event")
+
+    chunks = [chunk async for chunk in sse_stream(events())]
+    assert len(chunks) == 2
+    assert sum("event: error" in c for c in chunks) == 1
+
+
 async def test_sse_stream_raise_mode():
     async def events():
         raise RuntimeError("boom")

@@ -40,12 +40,21 @@ class ConnectionRequest(BaseModel):
 
 
 class ConnectionStatus(BaseModel):
-    """The state of a connection."""
+    """The state of a connection.
+
+    ``account_id`` is the provider-side identifier of the linked account,
+    when the connector reports one. Some vendors use the same id for the
+    connection handle and the account; others (or connectors that resolve a
+    different account than the one polled) distinguish them — consumers
+    that execute against a specific account should prefer ``account_id``
+    when it is set.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     connection_id: str
     status: Literal["pending", "active", "failed", "expired"]
+    account_id: Optional[str] = None
 
 
 class Connector(ToolSource, abc.ABC):

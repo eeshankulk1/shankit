@@ -64,7 +64,7 @@ class FakeComposio:
 
     def _get_account(self, connection_id):
         assert connection_id == "conn_1"
-        return {"status": self.account_status}
+        return {"id": "acc_9", "status": self.account_status}
 
 
 @pytest.fixture
@@ -124,11 +124,73 @@ async def test_connection_lifecycle(connector):
     )
 
     status = await connector.check_status(ctx, connection_id="conn_1")
-    assert status == ConnectionStatus(connection_id="conn_1", status="pending")
+    assert status == ConnectionStatus(
+        connection_id="conn_1", status="pending", account_id="acc_9"
+    )
 
     connector._client.account_status = "ACTIVE"
     adopted = await connector.adopt(ctx, connection_id="conn_1")
     assert adopted.status == "active"
+    # the provider-side account id is a typed part of the lifecycle contract
+    assert adopted.account_id == "acc_9"
+
+
+async def test_tools_cache_ttl_skips_refetch(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("shankit_connectors.composio.time.monotonic", lambda: clock["now"])
+    connector = ComposioConnector(
+        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
+    )
+
+    first = await connector.list_tools()
+    within_ttl = await connector.list_tools()
+    assert [d.name for d in within_ttl] == [d.name for d in first]
+    assert len(connector._client.raw_tool_queries) == 1  # served from cache
+
+    clock["now"] += 601
+    await connector.list_tools()
+    assert len(connector._client.raw_tool_queries) == 2  # expired, refetched
+
+
+async def test_cached_catalog_is_mutation_safe():
+    """Consumers that post-process ToolDefs in place (schema slimming) must
+    not poison the shared cache."""
+    connector = ComposioConnector(
+        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
+    )
+    first = await connector.list_tools()
+    first[0].input_schema["properties"]["to"]["type"] = "MUTATED"
+    second = await connector.list_tools()
+    assert second[0].input_schema["properties"]["to"]["type"] == "string"
+
+
+async def test_no_ttl_fetches_every_time():
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio())
+    await connector.list_tools()
+    await connector.list_tools()
+    assert len(connector._client.raw_tool_queries) == 2
+
+
+async def test_transform_result_subclass_point():
+    class SlimmingConnector(ComposioConnector):
+        def transform_result(self, name, data, context=None):
+            assert name == "GMAIL_SEARCH"
+            assert context == {"user_id": "u1"}
+            return {"kept": data["id"]}
+
+    connector = SlimmingConnector(
+        toolkit="GMAIL", user_id=lambda ctx: ctx["user_id"], client=FakeComposio()
+    )
+    result = await connector.execute("GMAIL_SEARCH", {}, context={"user_id": "u1"})
+    assert result.content == '{"kept": "msg_1"}'
+
+
+async def test_transform_result_not_called_on_failure(connector):
+    calls = []
+    connector.transform_result = lambda name, data, context=None: calls.append(name)
+    with pytest.raises(ToolError):
+        await connector.execute("GMAIL_SEND_EMAIL", {}, context={"user_id": "u42"})
+    assert calls == []
 
 
 async def test_connector_is_a_plain_tool_source(connector):
