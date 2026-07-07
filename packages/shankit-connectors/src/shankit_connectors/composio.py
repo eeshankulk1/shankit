@@ -57,6 +57,17 @@ class ComposioConnector(Connector):
             execute), so one cache per connector is safe. ``None`` (default)
             fetches every time. Calling ``list_tools`` once at startup warms
             the cache, which is all a warmup hook would do.
+        skip_version_check: When the Composio client pins no toolkit versions,
+            the SDK resolves the tool version to ``"latest"`` and
+            ``tools.execute`` raises ``ToolVersionRequiredError`` unless it is
+            told to skip the check. Left ``False`` (default), the connector
+            surfaces that error so the consumer makes an explicit choice —
+            pin versions on the client, or opt in here. Set ``True`` to always
+            follow the latest toolkit version (forwarded as
+            ``dangerously_skip_version_check`` to the SDK); the tradeoff is
+            that a breaking toolkit release can change behavior without a code
+            change. Ignored when the client pins versions (the resolved
+            version is then never ``"latest"``).
 
     Subclass points: override :meth:`transform_result` to post-process
     successful tool payloads before the model sees them (e.g. slim bulky
@@ -72,6 +83,7 @@ class ComposioConnector(Connector):
         client: Any = None,
         api_key: Optional[str] = None,
         tools_cache_ttl: Optional[float] = None,
+        skip_version_check: bool = False,
     ) -> None:
         self.toolkit = toolkit
         self._user_id = user_id
@@ -79,6 +91,7 @@ class ComposioConnector(Connector):
         self._client = client
         self._api_key = api_key
         self._tools_cache_ttl = tools_cache_ttl
+        self._skip_version_check = skip_version_check
         self._cached_tools: Optional[list[ToolDef]] = None
         self._cache_expires_at = 0.0
 
@@ -145,7 +158,11 @@ class ComposioConnector(Connector):
         client = self._get_client()
         user_id = self._resolve_user(context)
         response = await asyncio.to_thread(
-            client.tools.execute, name, user_id=user_id, arguments=arguments or {}
+            client.tools.execute,
+            name,
+            user_id=user_id,
+            arguments=arguments or {},
+            dangerously_skip_version_check=self._skip_version_check,
         )
         successful = bool(_field(response, "successful", default=True))
         error = _field(response, "error")

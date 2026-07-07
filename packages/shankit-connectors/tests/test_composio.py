@@ -16,6 +16,7 @@ class FakeComposio:
     def __init__(self):
         self.executed = []
         self.raw_tool_queries = []
+        self.last_skip_version_check = None
         self.tools = SimpleNamespace(
             get_raw_composio_tools=self._get_raw_tools, execute=self._execute
         )
@@ -51,8 +52,9 @@ class FakeComposio:
             ),
         ]
 
-    def _execute(self, slug, user_id, arguments):
+    def _execute(self, slug, user_id, arguments, dangerously_skip_version_check=None):
         self.executed.append((slug, user_id, arguments))
+        self.last_skip_version_check = dangerously_skip_version_check
         if slug == "GMAIL_SEND_EMAIL" and not arguments.get("to"):
             return {"successful": False, "error": "Missing recipient", "data": None}
         return {"successful": True, "error": None, "data": {"id": "msg_1"}}
@@ -114,6 +116,24 @@ async def test_execute_default_user_when_no_extractor():
 async def test_vendor_failure_is_tool_error(connector):
     with pytest.raises(ToolError, match="Missing recipient"):
         await connector.execute("GMAIL_SEND_EMAIL", {}, context={"user_id": "u42"})
+
+
+async def test_execute_defaults_to_not_skipping_version_check(connector):
+    # Default is conservative: the SDK still enforces its version check, so a
+    # client with unpinned toolkits surfaces ToolVersionRequiredError rather
+    # than silently following "latest".
+    await connector.execute("GMAIL_SEARCH", {}, context={"user_id": "u42"})
+    assert connector._client.last_skip_version_check is False
+
+
+async def test_execute_forwards_skip_version_check():
+    # Opting in lets a connector against an unpinned client execute without
+    # raising ToolVersionRequiredError (it follows the latest toolkit version).
+    connector = ComposioConnector(
+        toolkit="GMAIL", client=FakeComposio(), skip_version_check=True
+    )
+    await connector.execute("GMAIL_SEARCH", {})
+    assert connector._client.last_skip_version_check is True
 
 
 async def test_connection_lifecycle(connector):
