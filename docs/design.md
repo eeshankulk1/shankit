@@ -479,3 +479,16 @@ where the original text had a gap (flagged ⚠):
     subclass point for slimming vendor payloads. `ConnectionStatus` gained
     a vendor-neutral `account_id`. Nothing new was added to the base
     `Connector` contract's method set.
+13. **⚠ Toolkit versioning is the consumer's explicit choice.** The first
+    real consumer surfaced that `ComposioConnector.execute` couldn't run
+    tools at all against a client that pins no `toolkit_versions` (the SDK
+    default): newer composio SDKs resolve the version to `"latest"` and
+    raise `ToolVersionRequiredError` — invisible to the fake-SDK tests,
+    which didn't model the check. The connector gained an opt-in
+    `skip_version_check: bool = False`, forwarded as
+    `dangerously_skip_version_check`. Default `False` on purpose: silently
+    following `"latest"` means a breaking toolkit release changes behavior
+    with no code change, so the consumer must choose — pin versions on the
+    client, or opt in. The kwarg is only sent when opted in, because the
+    declared floor (`composio>=0.8.0`) predates it and an unconditional
+    forward would break every default-path user on an older SDK.
