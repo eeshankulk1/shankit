@@ -51,6 +51,11 @@ class FakeComposio:
             ),
         ]
 
+    # Deliberately NO ``dangerously_skip_version_check`` in the signature:
+    # older composio SDKs (declared floor 0.8.0) predate the kwarg, so the
+    # connector must not send it unless the consumer opted in. Every default-
+    # path test in this file exercises that structurally — an accidental
+    # unconditional forward is a TypeError here.
     def _execute(self, slug, user_id, arguments):
         self.executed.append((slug, user_id, arguments))
         if slug == "GMAIL_SEND_EMAIL" and not arguments.get("to"):
@@ -65,6 +70,19 @@ class FakeComposio:
     def _get_account(self, connection_id):
         assert connection_id == "conn_1"
         return {"id": "acc_9", "status": self.account_status}
+
+
+class FakeComposioWithVersionCheck(FakeComposio):
+    """Models a newer SDK whose ``tools.execute`` accepts (and here records)
+    ``dangerously_skip_version_check``."""
+
+    def __init__(self):
+        super().__init__()
+        self.last_skip_version_check = None
+
+    def _execute(self, slug, user_id, arguments, dangerously_skip_version_check=None):
+        self.last_skip_version_check = dangerously_skip_version_check
+        return super()._execute(slug, user_id, arguments)
 
 
 @pytest.fixture
@@ -114,6 +132,25 @@ async def test_execute_default_user_when_no_extractor():
 async def test_vendor_failure_is_tool_error(connector):
     with pytest.raises(ToolError, match="Missing recipient"):
         await connector.execute("GMAIL_SEND_EMAIL", {}, context={"user_id": "u42"})
+
+
+async def test_execute_default_omits_version_check_kwarg(connector):
+    # Default is conservative twice over: the SDK still enforces its version
+    # check (an unpinned client surfaces ToolVersionRequiredError rather than
+    # silently following "latest"), and the kwarg isn't sent at all — the
+    # shared FakeComposio signature has no dangerously_skip_version_check, so
+    # this call succeeding proves compatibility with SDKs that predate it.
+    await connector.execute("GMAIL_SEARCH", {}, context={"user_id": "u42"})
+    assert connector._client.executed == [("GMAIL_SEARCH", "u42", {})]
+
+
+async def test_execute_forwards_skip_version_check_when_opted_in():
+    # Opting in lets a connector against an unpinned client execute without
+    # raising ToolVersionRequiredError (it follows the latest toolkit version).
+    client = FakeComposioWithVersionCheck()
+    connector = ComposioConnector(toolkit="GMAIL", client=client, skip_version_check=True)
+    await connector.execute("GMAIL_SEARCH", {})
+    assert client.last_skip_version_check is True
 
 
 async def test_connection_lifecycle(connector):
