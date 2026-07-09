@@ -35,6 +35,7 @@ _STATUS_MAP = {
     "ACTIVE": "active",
     "FAILED": "failed",
     "EXPIRED": "expired",
+    "INACTIVE": "failed",
 }
 
 
@@ -161,6 +162,16 @@ class ComposioConnector(Connector):
     ) -> ToolResult:
         if self._allowlist is not None and name.upper() not in self._allowlist:
             raise ToolNotFoundError(name)
+        if (
+            self._allowlist is None
+            and self._cached_tools is not None
+            and time.monotonic() < self._cache_expires_at
+            and name not in {d.name for d in self._cached_tools}
+        ):
+            # Without an allowlist the catalog is the only name authority we
+            # have locally; when a warm cache says the name doesn't exist,
+            # honor the seam contract instead of a vendor round-trip.
+            raise ToolNotFoundError(name)
         client = self._get_client()
         user_id = self._resolve_user(context)
         # Forward the skip only when opted in: older composio SDKs (the
@@ -170,13 +181,26 @@ class ComposioConnector(Connector):
         extra: dict[str, Any] = (
             {"dangerously_skip_version_check": True} if self._skip_version_check else {}
         )
-        response = await asyncio.to_thread(
-            client.tools.execute,
-            name,
-            user_id=user_id,
-            arguments=arguments or {},
-            **extra,
-        )
+        try:
+            response = await asyncio.to_thread(
+                client.tools.execute,
+                name,
+                user_id=user_id,
+                arguments=arguments or {},
+                **extra,
+            )
+        except Exception as exc:
+            # Known, actionable vendor failures become controlled ToolErrors
+            # (visible on the trajectory and to the model) instead of the
+            # loop's opaque "failed unexpectedly" sanitization. Matched by
+            # class name so no composio import is required here.
+            if type(exc).__name__ == "ToolVersionRequiredError":
+                raise ToolError(
+                    f"The {name} call was rejected: the Composio client pins no toolkit "
+                    "versions. Pin versions on the client, or construct the connector "
+                    "with skip_version_check=True to follow the latest version."
+                ) from exc
+            raise
         successful = bool(_field(response, "successful", default=True))
         error = _field(response, "error")
         data = _field(response, "data")
@@ -209,28 +233,66 @@ class ComposioConnector(Connector):
         request = await asyncio.to_thread(
             client.connected_accounts.initiate, user_id=user_id, **params
         )
+        request_id = _field(request, "id")
+        if not request_id:
+            raise RuntimeError(
+                f"Composio initiate returned no connection id for toolkit {self.toolkit!r}; "
+                "cannot poll this connection."
+            )
         return ConnectionRequest(
-            connection_id=str(_field(request, "id")),
+            connection_id=str(request_id),
             redirect_url=_field(request, "redirect_url") or _field(request, "redirectUrl"),
         )
 
     async def check_status(self, context: Any = None, *, connection_id: str) -> ConnectionStatus:
+        """Poll a connection's status.
+
+        When a ``user_id`` extractor is configured (multi-tenant), the
+        connection must belong to the user ``context`` resolves to —
+        polling someone else's connection raises :class:`PermissionError`,
+        so a leaked or guessed connection id cannot be linked cross-tenant.
+        """
         client = self._get_client()
         account = await asyncio.to_thread(client.connected_accounts.get, connection_id)
+        self._check_ownership(connection_id, account, context)
         return _to_status(connection_id, account)
 
     async def adopt(self, context: Any = None, *, connection_id: str) -> ConnectionStatus:
         """Adopt a connection created outside this app (dashboard, previous
-        system). Verifies it exists and reports its status."""
+        system). Verifies it exists, belongs to whoever ``context``
+        identifies (when a ``user_id`` extractor is configured), and reports
+        its status."""
         return await self.check_status(context, connection_id=connection_id)
+
+    def _check_ownership(self, connection_id: str, account: Any, context: Any) -> None:
+        if self._user_id is None:
+            return  # single-tenant: no identity to scope to
+        expected = self._resolve_user(context)
+        actual = _field(account, "user_id") or _field(account, "userId")
+        if actual is not None and str(actual) != expected:
+            raise PermissionError(
+                f"Connection {connection_id!r} belongs to Composio user {str(actual)!r}, "
+                f"not the acting user {expected!r}."
+            )
 
 
 def _to_status(connection_id: str, account: Any) -> ConnectionStatus:
     raw_status = str(_field(account, "status") or "").upper()
+    status = _STATUS_MAP.get(raw_status)
+    if status is None:
+        # A status this map doesn't know is terminal-by-default: mapping it
+        # to "pending" would make connect UIs poll a dead connection forever
+        # (Composio's INACTIVE did exactly that before it was added above).
+        logger.warning(
+            "Unmapped Composio connection status %r for connection %r; reporting 'failed'.",
+            raw_status,
+            connection_id,
+        )
+        status = "failed"
     account_id = _field(account, "id")
     return ConnectionStatus(
         connection_id=connection_id,
-        status=_STATUS_MAP.get(raw_status, "pending"),  # type: ignore[arg-type]
+        status=status,  # type: ignore[arg-type]
         account_id=str(account_id) if account_id else None,
     )
 
