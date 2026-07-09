@@ -28,10 +28,12 @@ class StepInfo(BaseModel):
     phase: Optional[str] = None
 
 
-StepDescriber = Callable[[str, dict, Any], Optional[StepInfo]]
+StepDescriber = Callable[[str, dict[str, Any], Any], Optional[StepInfo]]
 
 
-def default_step_describer(tool_name: str, arguments: dict, context: Any = None) -> StepInfo:
+def default_step_describer(
+    tool_name: str, arguments: dict[str, Any], context: Any = None
+) -> StepInfo:
     """A generic fallback: ``search_email`` -> ``"Search email"``."""
     title = tool_name.replace("_", " ").replace("-", " ").strip()
     return StepInfo(title=title[:1].upper() + title[1:] if title else tool_name)

@@ -31,6 +31,7 @@ from typing import (
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from . import _tracing
+from ._serialize import dump_str
 from .events import (
     AgentEvent,
     DoneEvent,
@@ -47,6 +48,7 @@ from .exceptions import (
     OutputValidationError,
     ShankitError,
     ToolError,
+    ToolNotFoundError,
 )
 from .messages import (
     Message,
@@ -66,7 +68,13 @@ from .models.base import (
 from .models.registry import resolve_model
 from .observe import StepDescriber, StepInfo, default_step_describer
 from .tools.aggregate import CompositeToolSource
-from .tools.base import ToolDef, ToolResult, ToolSource, is_tool_source
+from .tools.base import (
+    ToolDef,
+    ToolResult,
+    ToolSource,
+    is_tool_source,
+    single_task_tool_def,
+)
 from .tools.local import FunctionTool, FunctionToolSource
 from .usage import Usage
 
@@ -204,11 +212,17 @@ class Agent:
         *,
         context: Any = None,
         output_type: type[OutputT],
+        on_event: Optional[Callable[[AgentEvent], None]] = None,
         history: Optional[Sequence[Any]] = None,
     ) -> RunResult[OutputT]: ...
     @overload
     async def run(
-        self, prompt: str, *, context: Any = None, history: Optional[Sequence[Any]] = None
+        self,
+        prompt: str,
+        *,
+        context: Any = None,
+        on_event: Optional[Callable[[AgentEvent], None]] = None,
+        history: Optional[Sequence[Any]] = None,
     ) -> RunResult[Any]: ...
 
     async def run(
@@ -226,9 +240,11 @@ class Agent:
         ``output_type=str`` makes the final assistant text the deliverable
         (the full transcript stays on ``RunResult.text``).
         ``on_event`` optionally observes the event stream (steps, sources,
-        usage) while the structured run progresses. ``history`` is prior
-        conversation turns (``Message`` objects or ``{"role", "content"}``
-        dicts) prepended before this call's ``prompt``.
+        usage) while the structured run progresses; it must be a plain
+        sync callable, and an exception it raises aborts the run. ``history``
+        is prior conversation turns (``Message`` objects or
+        ``{"role", "content"}`` dicts) prepended before this call's
+        ``prompt``.
 
         A failed model provider call raises :class:`shankit.ModelError`
         (check ``retryable`` for backoff) — never a provider SDK exception.
@@ -475,7 +491,7 @@ class Agent:
 
                 step_counter += 1
                 step_id = f"s{step_counter}"
-                info = self._describe(tool_use, context, known_tools)
+                info = self._describe(tool_use, context)
                 if info is not None:
                     yield StepEvent(
                         id=step_id,
@@ -561,9 +577,7 @@ class Agent:
             return str(resolved)
         return instructions
 
-    def _describe(
-        self, tool_use: ToolUseBlock, context: Any, known_tools: set[str]
-    ) -> Optional[StepInfo]:
+    def _describe(self, tool_use: ToolUseBlock, context: Any) -> Optional[StepInfo]:
         if self.describe_step is None:
             return None
         try:
@@ -640,28 +654,11 @@ class _AgentToolSource(ToolSource):
         self.output = output
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
-        return [
-            ToolDef(
-                name=self.tool_name,
-                description=self.description,
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "task": {
-                            "type": "string",
-                            "description": "The task for this agent, in plain language.",
-                        }
-                    },
-                    "required": ["task"],
-                },
-            )
-        ]
+        return [single_task_tool_def(self.tool_name, self.description)]
 
     async def execute(
         self, name: str, arguments: dict[str, Any], context: Any = None
     ) -> ToolResult:
-        from .exceptions import ToolNotFoundError
-
         if name != self.tool_name:
             raise ToolNotFoundError(name)
         task = str(arguments.get("task", "")).strip()
@@ -670,7 +667,7 @@ class _AgentToolSource(ToolSource):
         try:
             if self.output == "structured":
                 result = await self.agent.run(task, context=context)
-                content = _dump_output(result.output)
+                content = dump_str(result.output)
             else:
                 result = await self.agent.run(task, context=context, output_type=str)
                 content = result.output
@@ -688,16 +685,6 @@ class _AgentToolSource(ToolSource):
             usage=result.usage,
             truncated=result.truncated,
         )
-
-
-def _dump_output(output: Any) -> str:
-    if isinstance(output, BaseModel):
-        return output.model_dump_json()
-    if isinstance(output, str):
-        return output
-    import json
-
-    return json.dumps(output, default=str)
 
 
 def _sanitize_tool_name(name: str) -> str:

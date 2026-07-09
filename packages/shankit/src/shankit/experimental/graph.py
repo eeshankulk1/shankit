@@ -38,41 +38,35 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel
 
 from ..agent import Agent
 from ..durability import Checkpoint, Checkpointer, InterruptInfo
 from ..exceptions import ShankitError, ToolNotFoundError
-from ..tools.base import ToolDef, ToolResult, ToolSource
+from ..tools.base import ToolDef, ToolResult, ToolSource, single_task_tool_def
 
 __all__ = ["Interrupt", "Network", "NetworkResult", "agent_step"]
 
 logger = logging.getLogger("shankit")
 
+# Returned by a router to pause the run for a human: on
+# :meth:`Network.resume`, the supplied value is written into the state under
+# ``key`` and routing continues. This *is* the durable record a checkpoint
+# stores (one type, so an interrupt round-trips through a checkpointer
+# unchanged); the alias is the router-facing name.
+Interrupt = InterruptInfo
+
 # A step: (state, context) -> optional dict merged into state.
 StepFn = Callable[[dict, Any], Union[Optional[dict], Awaitable[Optional[dict]]]]
-RouterDecision = Union[str, "Interrupt", None]
+RouterDecision = Union[str, Interrupt, None]
 Router = Callable[[dict], Union[RouterDecision, Awaitable[RouterDecision]]]
 
 
 @dataclass
-class Interrupt:
-    """Returned by a router to pause the run for a human.
-
-    On :meth:`Network.resume`, the supplied value is written into the state
-    under ``key`` and routing continues.
-    """
-
-    reason: str
-    key: str = "approval"
-    payload: Any = None
-
-
-@dataclass
 class NetworkResult:
-    status: str  # "done" | "interrupted"
+    status: Literal["done", "interrupted"]
     state: dict[str, Any]
     interrupt: Optional[Interrupt] = None
     thread_id: Optional[str] = None
@@ -219,10 +213,7 @@ class Network:
                 )
 
             if isinstance(decision, Interrupt):
-                info = InterruptInfo(
-                    reason=decision.reason, key=decision.key, payload=decision.payload
-                )
-                await self._save(thread_id, state, "interrupted", info, steps_run)
+                await self._save(thread_id, state, "interrupted", decision, steps_run)
                 return NetworkResult(
                     status="interrupted",
                     state=state,
@@ -262,7 +253,7 @@ class Network:
         self,
         thread_id: Optional[str],
         state: dict[str, Any],
-        status: str,
+        status: Literal["running", "interrupted", "done"],
         interrupt: Optional[InterruptInfo],
         steps_run: list[str],
         in_flight: Optional[str] = None,
@@ -273,7 +264,7 @@ class Network:
             thread_id,
             Checkpoint(
                 state=state,
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 interrupt=interrupt,
                 steps_run=list(steps_run),
                 in_flight=in_flight,
@@ -327,19 +318,7 @@ class _NetworkToolSource(ToolSource):
         self.output_key = output_key
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
-        return [
-            ToolDef(
-                name=self.tool_name,
-                description=self.description,
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "task": {"type": "string", "description": "The task, in plain language."}
-                    },
-                    "required": ["task"],
-                },
-            )
-        ]
+        return [single_task_tool_def(self.tool_name, self.description)]
 
     async def execute(
         self, name: str, arguments: dict[str, Any], context: Any = None

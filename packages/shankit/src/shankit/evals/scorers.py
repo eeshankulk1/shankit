@@ -12,7 +12,9 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel
 
+from .._serialize import dump_str
 from ..agent import Agent, RunResult
+from ..models import ModelClient
 
 __all__ = ["Score", "Scorer", "exact_match", "llm_judge", "normalize_score", "output_contains"]
 
@@ -49,12 +51,6 @@ async def call_scorer(scorer: Scorer, case: Any, result: RunResult) -> Score:
 # ---------------------------------------------------------------- built-ins
 
 
-def _dump(output: Any) -> str:
-    if isinstance(output, BaseModel):
-        return output.model_dump_json()
-    return str(output)
-
-
 def exact_match(case: Any, result: RunResult) -> Score:
     """Pass iff ``result.output`` equals ``case.expected`` (pydantic outputs
     compare by their dict dump)."""
@@ -77,7 +73,7 @@ def output_contains(substring: Optional[str] = None) -> Scorer:
 
     def scorer(case: Any, result: RunResult) -> Score:
         needle = substring if substring is not None else str(case.expected)
-        haystack = _dump(result.output) if result.output is not None else result.text
+        haystack = dump_str(result.output) if result.output is not None else result.text
         passed = needle in haystack
         return Score(name="output_contains", value=1.0 if passed else 0.0, passed=passed)
 
@@ -95,7 +91,7 @@ def llm_judge(
     *,
     model: str,
     threshold: float = 0.7,
-    model_client: Any = None,
+    model_client: Optional[ModelClient] = None,
 ) -> Scorer:
     """A model-graded scorer: judges the result against a rubric, returning
     a 0..1 score. The judge is itself a structured agent run."""
@@ -115,7 +111,7 @@ def llm_judge(
         # Judge the deliverable, not the transcript: interim narration
         # passes would otherwise shift scores on rubrics about format or
         # conciseness without the agent's answer changing.
-        candidate = _dump(result.output) if result.output is not None else result.text
+        candidate = dump_str(result.output) if result.output is not None else result.text
         verdict = await judge.run(
             f"Rubric: {rubric}\n\nTask input: {case.input}\n\nCandidate response:\n{candidate}"
         )

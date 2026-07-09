@@ -24,7 +24,7 @@ from __future__ import annotations
 import abc
 import contextlib
 from collections.abc import AsyncIterator, Callable, Iterator
-from typing import Any, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelTextDelta",
+    "default_stream_from_complete",
     "map_sdk_error",
     "model_error_for_status",
     "wrap_sdk_errors",
@@ -88,15 +89,20 @@ ModelStreamEvent = Union[ModelTextDelta, ModelResponseComplete]
 
 
 class ModelClient(abc.ABC):
-    """Implement this to plug in a model provider."""
+    """Implement this to plug in a model provider.
+
+    ``complete`` is the only required method: ``stream`` defaults to a
+    single-delta fallback built on ``complete``, so a minimal client works
+    in both run modes; override it for real incremental streaming.
+    """
 
     @abc.abstractmethod
     async def complete(self, request: ModelRequest) -> ModelResponse:
         """One non-streaming model call."""
 
-    @abc.abstractmethod
     def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         """One streaming model call (see module docstring for the contract)."""
+        return default_stream_from_complete(self, request)
 
     async def aclose(self) -> None:  # noqa: B027  (optional hook, no-op by default)
         """Release underlying transport resources, if any."""
@@ -182,7 +188,3 @@ def wrap_sdk_errors(map_error: Callable[[Exception], Optional[ModelError]]) -> I
         if mapped is None:
             raise
         raise mapped from exc
-
-
-def _unused(*_: Any) -> None:  # keep pydantic import shape stable for type checkers
-    return None

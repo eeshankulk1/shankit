@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -53,7 +53,7 @@ class Dataset(BaseModel):
     def __len__(self) -> int:
         return len(self.cases)
 
-    def filter(self, predicate: Any) -> Dataset:
+    def filter(self, predicate: Callable[[Case], bool]) -> Dataset:
         return Dataset(cases=[c for c in self.cases if predicate(c)])
 
     def sample(self, n: int, *, seed: Optional[int] = None) -> Dataset:

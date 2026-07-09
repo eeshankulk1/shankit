@@ -17,8 +17,18 @@ Public surface (design §11):
 - Experimental graph/network: :mod:`shankit.experimental.graph`.
 """
 
+# Documented as reachable off the package (`shankit.evals`); import it so
+# that holds without a separate import. It is dependency-light. Placed after
+# the core imports because evals itself imports from shankit.agent.
+from . import evals
 from .agent import Agent, RunResult, ToolCallRecord
-from .durability import Checkpoint, Checkpointer, InMemoryCheckpointer, SqliteCheckpointer
+from .durability import (
+    Checkpoint,
+    Checkpointer,
+    InMemoryCheckpointer,
+    InterruptInfo,
+    SqliteCheckpointer,
+)
 from .events import (
     AgentEvent,
     DoneEvent,
@@ -70,6 +80,7 @@ __all__ = [
     "FunctionTool",
     "FunctionToolSource",
     "InMemoryCheckpointer",
+    "InterruptInfo",
     "MCPToolSource",
     "MaxIterationsError",
     "Message",
@@ -104,6 +115,7 @@ __all__ = [
     "coerce_message",
     "default_registry",
     "default_step_describer",
+    "evals",
     "format_sse",
     "load_agent",
     "load_agents",
