@@ -66,6 +66,12 @@ def ts_type(schema: dict[str, Any], defs: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _comment_safe(text: str) -> str:
+    # A `*/` inside a docstring would end the block comment early and break
+    # the generated file's syntax.
+    return text.replace("*/", "*\\/")
+
+
 def render_fields(schema: dict[str, Any], defs: dict[str, Any], indent: str = "  ") -> str:
     lines: list[str] = []
     for name, prop in schema.get("properties", {}).items():
@@ -75,7 +81,7 @@ def render_fields(schema: dict[str, Any], defs: dict[str, Any], indent: str = " 
         prop_type = ts_type(prop, defs)
         description = prop.get("description")
         if description:
-            lines.append(f"{indent}/** {description} */")
+            lines.append(f"{indent}/** {_comment_safe(description)} */")
         lines.append(f"{indent}{name}{optional}: {prop_type};")
     if schema.get("additionalProperties") is True:
         lines.append(f"{indent}[key: string]: unknown;")
@@ -83,7 +89,7 @@ def render_fields(schema: dict[str, Any], defs: dict[str, Any], indent: str = " 
 
 
 def render_interface(name: str, schema: dict[str, Any], defs: dict[str, Any]) -> str:
-    doc = schema.get("description", "").strip()
+    doc = _comment_safe(schema.get("description", "").strip())
     out = ""
     if doc:
         body = "\n".join(f" * {line}".rstrip() for line in doc.splitlines())
