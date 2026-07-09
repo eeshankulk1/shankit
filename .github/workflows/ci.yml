@@ -5,42 +5,93 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  python:
+  lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      # setup-uv already created and activated .venv for the requested
-      # Python; install into it and call its binaries directly (`uv run`
-      # would try to sync the virtual workspace root instead).
-      - name: Install packages
-        run: |
-          uv pip install -e packages/shankit -e packages/shankit-connectors \
-            pytest pytest-asyncio anthropic openai ruff
-      - name: Lint
-        run: .venv/bin/ruff check packages scripts
-      - name: Core tests
-        run: .venv/bin/pytest packages/shankit/tests -q
-      - name: Connector tests
-        run: .venv/bin/pytest packages/shankit-connectors/tests -q
+          enable-cache: true
+      - name: Install workspace
+        run: uv sync --all-packages --locked
+      - name: Ruff lint
+        run: uv run --no-sync ruff check packages scripts examples
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check packages scripts examples
+      - name: Pyright
+        run: uv run --no-sync pyright
       - name: Generated TS event types are in sync
-        run: .venv/bin/python scripts/generate_ts_events.py --check
+        run: uv run --no-sync python scripts/generate_ts_events.py --check
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The endpoints of the supported range plus the current default.
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: Install workspace
+        run: uv sync --all-packages --locked
+      - name: Core tests
+        run: uv run --no-sync pytest packages/shankit/tests -q
+      - name: Connector tests
+        run: uv run --no-sync pytest packages/shankit-connectors/tests -q
+
+  build:
+    # Packaging breaks silently until something builds it; publish day is
+    # the wrong time to find out.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Build wheels and sdists
+        run: uv build --all-packages
+      - name: Validate package metadata
+        run: uvx twine check dist/*
 
   typescript:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: packages/client-ts/package-lock.json
       - name: Build and test @shankit/client
         working-directory: packages/client-ts
         run: |
-          npm install
+          npm ci
           npm test
+
+  # Single required status check for branch protection: green iff every
+  # job above is green, stable as the matrix evolves.
+  check:
+    if: always()
+    needs: [lint, test, build, typescript]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs green
+        run: |
+          results='${{ toJSON(needs.*.result) }}'
+          echo "$results"
+          case "$results" in
+            *failure*|*cancelled*) exit 1 ;;
+          esac
