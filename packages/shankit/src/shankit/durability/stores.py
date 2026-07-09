@@ -91,8 +91,6 @@ class SqliteCheckpointer(Checkpointer):
     async def delete(self, thread_id: str) -> None:
         def _delete() -> None:
             with self._connect() as conn:
-                conn.execute(
-                    "DELETE FROM shankit_checkpoints WHERE thread_id = ?", (thread_id,)
-                )
+                conn.execute("DELETE FROM shankit_checkpoints WHERE thread_id = ?", (thread_id,))
 
         await asyncio.to_thread(_delete)

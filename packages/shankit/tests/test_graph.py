@@ -134,7 +134,7 @@ async def test_nested_network_shares_state():
     outer = Network(
         name="outer",
         steps={"sub": inner, "act": act_step},
-        router=lambda s: ("sub" if "draft" not in s else ("act" if "sent" not in s else None)),
+        router=lambda s: "sub" if "draft" not in s else ("act" if "sent" not in s else None),
     )
     result = await outer.run({"task": "x"})
     assert result.state["sent"] is True
@@ -212,7 +212,7 @@ async def test_step_failure_leaves_in_flight_marker_and_recover_retries():
     assert saved.in_flight == "act"
 
     # Ambiguous by default: the failed step may have had side effects.
-    with pytest.raises(ShankitError, match="in ?flight|idempotent"):
+    with pytest.raises(ShankitError, match=r"in ?flight|idempotent"):
         await net.recover("t-flaky")
 
     result = await net.recover("t-flaky", retry_in_flight=True)

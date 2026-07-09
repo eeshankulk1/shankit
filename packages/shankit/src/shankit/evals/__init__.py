@@ -5,14 +5,14 @@ from .scorers import Score, Scorer, exact_match, llm_judge, output_contains
 
 __all__ = [
     "Case",
+    "CaseResult",
     "Dataset",
+    "EvalReport",
     "Score",
     "Scorer",
-    "CaseResult",
-    "EvalReport",
     "evaluate",
     "exact_match",
-    "output_contains",
     "llm_judge",
+    "output_contains",
     "trajectory",
 ]

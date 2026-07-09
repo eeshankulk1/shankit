@@ -91,8 +91,10 @@ async def test_custom_scorer_shapes():
         output_type=str,
     )
     scores = report.results[0].scores
-    assert scores[0].name == "boolean_scorer" and scores[0].passed is True
-    assert scores[1].value == 0.5 and scores[1].passed is None
+    assert scores[0].name == "boolean_scorer"
+    assert scores[0].passed is True
+    assert scores[1].value == 0.5
+    assert scores[1].passed is None
     assert scores[2].reason == "looked good"
 
 

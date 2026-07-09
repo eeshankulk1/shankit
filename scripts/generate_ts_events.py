@@ -116,9 +116,7 @@ def generate() -> str:
         " * exactly one terminal event: `done` or `error`. */\n"
         f"export type AgentEvent = {union};\n"
     )
-    chunks.append(
-        'export type AgentEventType = AgentEvent["type"];\n'
-    )
+    chunks.append('export type AgentEventType = AgentEvent["type"];\n')
     return "\n".join(chunks)
 
 

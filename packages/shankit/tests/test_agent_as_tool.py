@@ -25,7 +25,7 @@ async def test_parent_delegates_to_sub_agent(make_agent):
         return ToolResult(content="raw", sources=[Source(title="wiki")])
 
     sub = make_sub([tool_call_response("lookup", {}), text_response("sub-answer")], tools=[lookup])
-    parent, fake = make_agent(
+    parent, _fake = make_agent(
         [
             tool_call_response("researcher", {"task": "find facts"}),
             text_response("parent-answer"),
@@ -83,7 +83,7 @@ async def test_sub_agent_failure_sanitized(make_agent):
             raise RuntimeError("provider blew up: secret_key=abc")
 
     sub = Agent(name="fragile", model="fake", model_client=ExplodingModel([]))
-    parent, fake = make_agent(
+    parent, _fake = make_agent(
         [tool_call_response("fragile", {"task": "x"}), text_response("recovered")],
         tools=[sub.as_tool()],
     )

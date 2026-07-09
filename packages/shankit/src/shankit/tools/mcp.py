@@ -129,8 +129,12 @@ class MCPToolSource(ToolSource):
             if not cursor:
                 return defs
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         session = await self._ensure_connected()
         result = await session.call_tool(name, arguments or {})
         parts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
-        return ToolResult(content="\n".join(parts), is_error=bool(getattr(result, "isError", False)))
+        return ToolResult(
+            content="\n".join(parts), is_error=bool(getattr(result, "isError", False))
+        )

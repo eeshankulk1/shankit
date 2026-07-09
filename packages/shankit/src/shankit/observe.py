@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-__all__ = ["StepInfo", "StepDescriber", "default_step_describer"]
+__all__ = ["StepDescriber", "StepInfo", "default_step_describer"]
 
 
 class StepInfo(BaseModel):

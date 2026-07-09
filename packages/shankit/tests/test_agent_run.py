@@ -134,7 +134,7 @@ async def test_default_schema_used(make_agent):
 
 
 async def test_unknown_tool_is_error_result(make_agent):
-    agent, fake = make_agent(
+    agent, _fake = make_agent(
         [
             tool_call_response("hallucinated", {}),
             final_result_response({"value": 0, "note": "recovered"}),
@@ -260,7 +260,7 @@ def test_output_spec_hoists_defs_for_wrapped_schemas():
 
 
 async def test_run_with_list_output_type(make_agent):
-    agent, fake = make_agent(
+    agent, _fake = make_agent(
         [final_result_response({"value": [{"value": 2, "note": "x"}]})],
     )
     result = await agent.run("go", output_type=list[Answer])

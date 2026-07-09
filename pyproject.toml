@@ -1,12 +1,27 @@
 # Virtual workspace root — the publishable packages live under packages/.
+#
+# Dev setup is one command from here: `uv sync --all-packages` installs both
+# packages editable plus this dev group into .venv (see CONTRIBUTING.md).
 
 [tool.uv.workspace]
 members = ["packages/shankit", "packages/shankit-connectors"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+    # Provider SDKs the test suites exercise (mocked; no network).
+    "anthropic>=0.83.0",
+    "openai>=1.45.0",
+]
 
 # Lets `pytest packages/...` run from the repo root (CI does this); the same
 # settings exist in each package for standalone runs.
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["packages"]
 
 [tool.ruff]
 line-length = 100
@@ -14,9 +29,32 @@ target-version = "py310"
 extend-exclude = ["packages/client-ts"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "C4",  # comprehensions
+    "SIM", # simplify
+    "RUF", # ruff-specific
+    "PLE", # pylint errors
+    "PT",  # pytest style
+]
 ignore = [
     "E501",  # long lines in docstrings/messages; formatter handles code
     "UP007", # keep typing.Optional/Union in public signatures for clarity
     "UP045",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Examples read best with relaxed import placement (deferred heavy imports).
+"examples/*" = ["E402"]
+
+[tool.pyright]
+include = ["packages/shankit/src", "packages/shankit-connectors/src", "scripts"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+# The SDKs behind optional extras may be absent in a minimal checkout.
+reportMissingImports = "warning"

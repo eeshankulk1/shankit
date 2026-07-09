@@ -341,11 +341,15 @@ class _NetworkToolSource(ToolSource):
             )
         ]
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         if name != self.tool_name:
             raise ToolNotFoundError(name)
         try:
-            result = await self.network.run({self.input_key: arguments.get("task", "")}, context=context)
+            result = await self.network.run(
+                {self.input_key: arguments.get("task", "")}, context=context
+            )
         except Exception:
             logger.exception("Network %r failed as a tool", self.network.name)
             return ToolResult(
@@ -362,7 +366,9 @@ class _NetworkToolSource(ToolSource):
             )
         if self.output_key is not None:
             value = result.state.get(self.output_key)
-            return ToolResult(content=value if isinstance(value, str) else json.dumps(value, default=str))
+            return ToolResult(
+                content=value if isinstance(value, str) else json.dumps(value, default=str)
+            )
         return ToolResult(content=json.dumps(result.state, default=str))
 
 

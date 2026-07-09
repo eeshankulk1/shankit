@@ -53,7 +53,9 @@ oncall = Agent(
 
 
 async def main() -> None:
-    async for event in oncall.stream("Is the checkout service healthy, and when is the next deploy?"):
+    async for event in oncall.stream(
+        "Is the checkout service healthy, and when is the next deploy?"
+    ):
         if event.type == "text_delta":
             print(event.text, end="", flush=True)
         elif event.type == "step":

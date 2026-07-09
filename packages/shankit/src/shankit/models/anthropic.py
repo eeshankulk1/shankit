@@ -100,9 +100,7 @@ def _map_error(exc: Exception) -> Optional[ModelError]:
     )
 
 
-def build_kwargs(
-    request: ModelRequest, *, cache_system_and_tools: bool = False
-) -> dict[str, Any]:
+def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False) -> dict[str, Any]:
     """Convert a neutral request into ``anthropic.messages.create`` kwargs."""
     kwargs: dict[str, Any] = {
         "model": request.model,
@@ -135,7 +133,9 @@ def parse_message(message: Any) -> ModelResponse:
         if block_type == "text":
             content.append(TextBlock(text=block.text))
         elif block_type == "tool_use":
-            content.append(ToolUseBlock(id=block.id, name=block.name, input=dict(block.input or {})))
+            content.append(
+                ToolUseBlock(id=block.id, name=block.name, input=dict(block.input or {}))
+            )
         # Other block types (thinking, server tool use, ...) are not part of
         # the v1 boundary shape and are dropped here.
     usage = Usage(

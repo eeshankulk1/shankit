@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26"]  # PEP 639 SPDX license expression needs >=1.26
 build-backend = "hatchling.build"
 
 [project]
@@ -8,12 +8,18 @@ version = "0.1.0"
 description = "Opt-in connector layer for shankit: connection lifecycle for OAuth-backed tool sources."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "shankit contributors" }]
+keywords = ["ai", "agents", "llm", "tools", "oauth", "connectors", "composio"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Typing :: Typed",
 ]
 dependencies = [
@@ -22,10 +28,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-composio = ["composio>=0.8.0"]
+# The implementation targets the composio v3 SDK surface; cap below the next
+# major so a breaking vendor release can't install silently.
+composio = ["composio>=0.8.0,<1.0"]
 
 [project.urls]
 Homepage = "https://github.com/eeshankulk1/shankit"
+Repository = "https://github.com/eeshankulk1/shankit"
+Issues = "https://github.com/eeshankulk1/shankit/issues"
+Documentation = "https://github.com/eeshankulk1/shankit/blob/main/docs/connectors.md"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]

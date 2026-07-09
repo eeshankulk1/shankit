@@ -176,9 +176,7 @@ def load_agents(
 
 def _split_frontmatter(raw: str, path: Path) -> tuple[dict[str, Any], str]:
     if not raw.lstrip().startswith("---"):
-        raise AgentFileError(
-            f"{path}: agent files start with a `---` YAML frontmatter block."
-        )
+        raise AgentFileError(f"{path}: agent files start with a `---` YAML frontmatter block.")
     stripped = raw.lstrip()
     parts = stripped.split("\n---", 1)
     if len(parts) != 2:

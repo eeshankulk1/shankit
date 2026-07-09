@@ -36,8 +36,11 @@ def test_load_full_file(tmp_path):
     sentinel_source = _StubSource()
     registry.register("gmail", sentinel_source)
 
-    agent = load_agent(write(tmp_path, "triage.md", FULL_FILE), registry=registry,
-                       variables={"today": "2026-07-04"})
+    agent = load_agent(
+        write(tmp_path, "triage.md", FULL_FILE),
+        registry=registry,
+        variables={"today": "2026-07-04"},
+    )
 
     assert agent.name == "email-triage"
     assert agent.description == "Triages the inbox."
@@ -59,8 +62,9 @@ class _StubSource:
 
 
 def test_missing_context_key_raises(tmp_path):
-    agent = load_agent(write(tmp_path, "a.md", FULL_FILE.replace("  - gmail\n", "")),
-                       registry=Registry())
+    agent = load_agent(
+        write(tmp_path, "a.md", FULL_FILE.replace("  - gmail\n", "")), registry=Registry()
+    )
     with pytest.raises(PromptVariableError, match="user_name"):
         agent.instructions({})
 

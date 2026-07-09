@@ -37,7 +37,9 @@ class CompositeToolSource(ToolSource):
         self._routes = routes
         return list(seen.values())
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         # Route on the name→source map captured by the last list_tools call
         # (the loop always lists before executing); re-listing every source
         # per call would cost a round-trip per network-backed source.

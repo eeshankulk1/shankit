@@ -156,7 +156,9 @@ class ComposioConnector(Connector):
             self._cache_expires_at = fetched_at + self._tools_cache_ttl
         return defs
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         if self._allowlist is not None and name.upper() not in self._allowlist:
             raise ToolNotFoundError(name)
         client = self._get_client()

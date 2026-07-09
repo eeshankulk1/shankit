@@ -12,7 +12,7 @@ from typing import Any
 from ..agent import RunResult
 from .scorers import Score, Scorer
 
-__all__ = ["used_tool", "did_not_use_tool", "max_tool_calls", "tool_order", "no_tool_errors"]
+__all__ = ["did_not_use_tool", "max_tool_calls", "no_tool_errors", "tool_order", "used_tool"]
 
 
 def _tools(result: RunResult) -> list[str]:

@@ -7,7 +7,6 @@ Run: python examples/01_quickstart.py
 import asyncio
 
 from pydantic import BaseModel, Field
-
 from shankit import Agent, ToolError, tool
 
 # --- capability: tools are code -------------------------------------------
@@ -60,9 +59,7 @@ async def main() -> None:
     context = {"user_id": "u1"}
 
     # Structured run: a typed, validated deliverable (the caller chooses).
-    result = await agent.run(
-        "Summarize my orders.", context=context, output_type=OrdersSummary
-    )
+    result = await agent.run("Summarize my orders.", context=context, output_type=OrdersSummary)
     print("structured:", result.output)
     print("tools used:", [record.tool for record in result.trajectory])
     print("usage:", result.usage)

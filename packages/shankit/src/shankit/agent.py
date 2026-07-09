@@ -70,7 +70,7 @@ from .tools.base import ToolDef, ToolResult, ToolSource, is_tool_source
 from .tools.local import FunctionTool, FunctionToolSource
 from .usage import Usage
 
-__all__ = ["Agent", "RunResult", "ToolCallRecord", "OUTPUT_TOOL_NAME"]
+__all__ = ["OUTPUT_TOOL_NAME", "Agent", "RunResult", "ToolCallRecord"]
 
 logger = logging.getLogger("shankit")
 
@@ -532,9 +532,7 @@ class Agent:
                     is_error=result.is_error,
                 )
 
-            messages.append(
-                Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses])
-            )
+            messages.append(Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses]))
 
             if finished is not None:
                 yield done_event(finished[0])
@@ -651,7 +649,9 @@ class _AgentToolSource(ToolSource):
             )
         ]
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         from .exceptions import ToolNotFoundError
 
         if name != self.tool_name:

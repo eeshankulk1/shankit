@@ -57,9 +57,7 @@ async def test_interim_text_joins_into_done_text(make_agent):
 async def test_usage_events_sum_to_done_usage(make_agent):
     """Sub-agent usage arrives through the tool seam; it must be part of the
     stream too, so summing UsageEvents always matches DoneEvent.usage."""
-    sub = Agent(
-        name="helper", model="fake", model_client=FakeModel([text_response("sub answer")])
-    )
+    sub = Agent(name="helper", model="fake", model_client=FakeModel([text_response("sub answer")]))
     agent, _ = make_agent(
         [tool_call_response("helper", {"task": "t"}), text_response("done")],
         tools=[sub.as_tool()],
@@ -212,4 +210,5 @@ async def test_cancelled_stream_cancels_inflight_tools(make_agent):
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await asyncio.sleep(0.01)
-    assert state["cancelled"] and not state["finished"]
+    assert state["cancelled"]
+    assert not state["finished"]

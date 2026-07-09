@@ -19,9 +19,7 @@ class FakeComposio:
         self.tools = SimpleNamespace(
             get_raw_composio_tools=self._get_raw_tools, execute=self._execute
         )
-        self.connected_accounts = SimpleNamespace(
-            initiate=self._initiate, get=self._get_account
-        )
+        self.connected_accounts = SimpleNamespace(initiate=self._initiate, get=self._get_account)
         self.account_status = "INITIATED"
 
     def _get_raw_tools(self, tools=None, toolkits=None):
@@ -102,15 +100,11 @@ async def test_list_tools_converts_to_anthropic_shape(connector):
 
 
 async def test_allowlist_filters_tools():
-    connector = ComposioConnector(
-        toolkit="GMAIL", tools=["gmail_search"], client=FakeComposio()
-    )
+    connector = ComposioConnector(toolkit="GMAIL", tools=["gmail_search"], client=FakeComposio())
     defs = await connector.list_tools()
     assert [d.name for d in defs] == ["GMAIL_SEARCH"]
     # An allowlisted connector fetches exactly its slugs, not the whole toolkit.
-    assert connector._client.raw_tool_queries == [
-        {"tools": ["GMAIL_SEARCH"], "toolkits": None}
-    ]
+    assert connector._client.raw_tool_queries == [{"tools": ["GMAIL_SEARCH"], "toolkits": None}]
     with pytest.raises(ToolNotFoundError):
         await connector.execute("GMAIL_SEND_EMAIL", {"to": "x"})
 
@@ -161,9 +155,7 @@ async def test_connection_lifecycle(connector):
     )
 
     status = await connector.check_status(ctx, connection_id="conn_1")
-    assert status == ConnectionStatus(
-        connection_id="conn_1", status="pending", account_id="acc_9"
-    )
+    assert status == ConnectionStatus(connection_id="conn_1", status="pending", account_id="acc_9")
 
     connector._client.account_status = "ACTIVE"
     adopted = await connector.adopt(ctx, connection_id="conn_1")
@@ -175,9 +167,7 @@ async def test_connection_lifecycle(connector):
 async def test_tools_cache_ttl_skips_refetch(monkeypatch):
     clock = {"now": 1000.0}
     monkeypatch.setattr("shankit_connectors.composio.time.monotonic", lambda: clock["now"])
-    connector = ComposioConnector(
-        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
-    )
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600)
 
     first = await connector.list_tools()
     within_ttl = await connector.list_tools()
@@ -192,9 +182,7 @@ async def test_tools_cache_ttl_skips_refetch(monkeypatch):
 async def test_cached_catalog_is_mutation_safe():
     """Consumers that post-process ToolDefs in place (schema slimming) must
     not poison the shared cache."""
-    connector = ComposioConnector(
-        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
-    )
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600)
     first = await connector.list_tools()
     first[0].input_schema["properties"]["to"]["type"] = "MUTATED"
     second = await connector.list_tools()
@@ -241,11 +229,7 @@ async def test_connector_is_a_plain_tool_source(connector):
             self.turn += 1
             if self.turn == 1:
                 return ModelResponse(
-                    content=[
-                        ToolUseBlock(
-                            id="t1", name="GMAIL_SEND_EMAIL", input={"to": "a@b.c"}
-                        )
-                    ],
+                    content=[ToolUseBlock(id="t1", name="GMAIL_SEND_EMAIL", input={"to": "a@b.c"})],
                     stop_reason="tool_use",
                     usage=Usage(requests=1),
                 )
@@ -259,9 +243,7 @@ async def test_connector_is_a_plain_tool_source(connector):
                 yield ModelTextDelta(text=response.text)
             yield ModelResponseComplete(response=response)
 
-    agent = Agent(
-        name="mailer", model="fake", model_client=ScriptedModel(), tools=[connector]
-    )
+    agent = Agent(name="mailer", model="fake", model_client=ScriptedModel(), tools=[connector])
     result = await agent.run("send it", context={"user_id": "u42"}, output_type=str)
     assert result.text == "sent"
     assert result.trajectory[0].tool == "GMAIL_SEND_EMAIL"

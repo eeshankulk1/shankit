@@ -15,12 +15,14 @@ from shankit.tools.base import ToolDef
 
 
 def sample_request(**overrides):
-    defaults = dict(
-        model="m",
-        system="be helpful",
-        messages=[Message(role="user", content=[TextBlock(text="hi")])],
-        tools=[ToolDef(name="t", description="d", input_schema={"type": "object", "properties": {}})],
-    )
+    defaults = {
+        "model": "m",
+        "system": "be helpful",
+        "messages": [Message(role="user", content=[TextBlock(text="hi")])],
+        "tools": [
+            ToolDef(name="t", description="d", input_schema={"type": "object", "properties": {}})
+        ],
+    }
     defaults.update(overrides)
     return ModelRequest(**defaults)
 
@@ -38,7 +40,9 @@ def test_anthropic_kwargs_shape():
 
 
 def test_anthropic_tool_choice_mapping():
-    assert anthropic_kwargs(sample_request(tool_choice="required"))["tool_choice"] == {"type": "any"}
+    assert anthropic_kwargs(sample_request(tool_choice="required"))["tool_choice"] == {
+        "type": "any"
+    }
     forced = anthropic_kwargs(sample_request(tool_choice=ForcedTool(name="t")))["tool_choice"]
     assert forced == {"type": "tool", "name": "t"}
 
@@ -110,7 +114,9 @@ def test_openai_message_conversion():
 
 def test_openai_error_results_prefixed():
     messages = [
-        Message(role="user", content=[ToolResultBlock(tool_use_id="c1", content="bad", is_error=True)])
+        Message(
+            role="user", content=[ToolResultBlock(tool_use_id="c1", content="bad", is_error=True)]
+        )
     ]
     out = to_openai_messages(None, messages)
     assert out[0]["content"] == "ERROR: bad"
@@ -155,7 +161,9 @@ def test_openai_malformed_arguments_preserved():
                 message=SimpleNamespace(
                     content=None,
                     tool_calls=[
-                        SimpleNamespace(id="c1", function=SimpleNamespace(name="t", arguments="{oops"))
+                        SimpleNamespace(
+                            id="c1", function=SimpleNamespace(name="t", arguments="{oops")
+                        )
                     ],
                 ),
             )

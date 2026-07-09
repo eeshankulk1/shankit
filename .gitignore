@@ -9,12 +9,13 @@ build/
 .pytest_cache/
 .ruff_cache/
 .coverage
-uv.lock
 
 # Node
 node_modules/
 packages/client-ts/dist/
-package-lock.json
+
+# OS
+.DS_Store
 
 # local scratch
 *.db

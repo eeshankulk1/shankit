@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from ..agent import Agent, RunResult
 
-__all__ = ["Score", "Scorer", "exact_match", "output_contains", "llm_judge", "normalize_score"]
+__all__ = ["Score", "Scorer", "exact_match", "llm_judge", "normalize_score", "output_contains"]
 
 
 class Score(BaseModel):
@@ -117,8 +117,7 @@ def llm_judge(
         # conciseness without the agent's answer changing.
         candidate = _dump(result.output) if result.output is not None else result.text
         verdict = await judge.run(
-            f"Rubric: {rubric}\n\nTask input: {case.input}\n\n"
-            f"Candidate response:\n{candidate}"
+            f"Rubric: {rubric}\n\nTask input: {case.input}\n\nCandidate response:\n{candidate}"
         )
         return Score(
             name="llm_judge",

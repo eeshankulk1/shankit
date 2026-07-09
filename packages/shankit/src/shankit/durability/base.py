@@ -18,7 +18,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-__all__ = ["InterruptInfo", "Checkpoint", "Checkpointer"]
+__all__ = ["Checkpoint", "Checkpointer", "InterruptInfo"]
 
 
 def _utcnow() -> datetime:

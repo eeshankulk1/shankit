@@ -1,7 +1,6 @@
 """Capability lives in code; the .md file references it by import path."""
 
 from pydantic import BaseModel
-
 from shankit import tool
 
 INBOX = [

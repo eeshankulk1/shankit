@@ -69,7 +69,9 @@ class ToolSource(abc.ABC):
         """The tools this source currently offers."""
 
     @abc.abstractmethod
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         """Execute one tool by name.
 
         Must raise :class:`shankit.ToolNotFoundError` for unknown names.
