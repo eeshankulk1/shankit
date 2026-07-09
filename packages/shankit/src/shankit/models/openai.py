@@ -27,6 +27,14 @@ _FINISH_REASONS = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_
 
 
 class OpenAIModel(ModelClient):
+    """OpenAI Chat Completions client.
+
+    Sends ``max_completion_tokens`` (the spelling reasoning models accept);
+    cached prompt tokens from ``prompt_tokens_details`` are reported on
+    ``Usage.cache_read_tokens``. OpenAI manages prompt caching automatically,
+    so there is no cache-write knob or cost to report.
+    """
+
     def __init__(
         self,
         *,
@@ -190,7 +198,13 @@ def to_openai_messages(system: Optional[str], messages: list[Message]) -> list[d
                 for b in message.content
                 if isinstance(b, ToolUseBlock)
             ]
-            entry: dict[str, Any] = {"role": "assistant", "content": text or None}
+            # OpenAI rejects null content unless tool_calls are present, and
+            # an all-empty assistant turn is reachable (empty model response
+            # followed by the structured-output nudge) — send "" instead.
+            entry: dict[str, Any] = {
+                "role": "assistant",
+                "content": text or ("" if not calls else None),
+            }
             if calls:
                 entry["tool_calls"] = calls
             out.append(entry)

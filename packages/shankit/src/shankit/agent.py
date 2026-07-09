@@ -333,6 +333,12 @@ class Agent:
 
         output_spec: Optional[_OutputSpec] = None
         if output_type is not None and output_type is not str:
+            if OUTPUT_TOOL_NAME in known_tools:
+                raise ShankitError(
+                    f"Agent {self.name!r} has a tool named {OUTPUT_TOOL_NAME!r}, which "
+                    "collides with the synthetic structured-output tool. Rename the "
+                    "tool, or run this agent unstructured."
+                )
             output_spec = _OutputSpec(output_type)
             tool_defs = [*tool_defs, output_spec.tool_def]
 
@@ -433,7 +439,9 @@ class Agent:
                     continue
                 # For output_type=str the deliverable is the final pass —
                 # the answer — not the transcript with its interim passes.
-                output = (texts[-1] if texts else "") if output_type is str else None
+                # This pass's text specifically: an empty final pass must not
+                # promote an earlier pass's narration to "the answer".
+                output = turn_text if output_type is str else None
                 yield done_event(output)
                 return
 

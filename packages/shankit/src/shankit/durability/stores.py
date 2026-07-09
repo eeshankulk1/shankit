@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Optional, Union
 
@@ -48,7 +49,9 @@ class SqliteCheckpointer(Checkpointer):
         return conn
 
     def _init(self) -> None:
-        with self._connect() as conn:
+        # sqlite3's `with conn:` manages the transaction only, never the
+        # connection - closing() releases the handle (and its WAL lock).
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS shankit_checkpoints (
@@ -63,7 +66,7 @@ class SqliteCheckpointer(Checkpointer):
         payload = checkpoint.model_dump_json()
 
         def _save() -> None:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute(
                     """
                     INSERT INTO shankit_checkpoints (thread_id, data, updated_at)
@@ -78,7 +81,7 @@ class SqliteCheckpointer(Checkpointer):
 
     async def load(self, thread_id: str) -> Optional[Checkpoint]:
         def _load() -> Optional[str]:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 row = conn.execute(
                     "SELECT data FROM shankit_checkpoints WHERE thread_id = ?",
                     (thread_id,),
@@ -90,7 +93,7 @@ class SqliteCheckpointer(Checkpointer):
 
     async def delete(self, thread_id: str) -> None:
         def _delete() -> None:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute("DELETE FROM shankit_checkpoints WHERE thread_id = ?", (thread_id,))
 
         await asyncio.to_thread(_delete)
