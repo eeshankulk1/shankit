@@ -15,6 +15,7 @@ The source also lazily connects on first use, but then you own calling
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
 from typing import Any, Optional
@@ -44,6 +45,10 @@ class MCPToolSource(ToolSource):
         self._headers = dict(headers) if headers else None
         self._stack: Optional[AsyncExitStack] = None
         self._session: Any = None
+        # The loop executes parallel tool calls concurrently, so two first
+        # uses can race into connect(); the lock makes one winner and the
+        # other a no-op instead of an orphaned session/subprocess.
+        self._connect_lock = asyncio.Lock()
 
     @classmethod
     def stdio(
@@ -61,39 +66,41 @@ class MCPToolSource(ToolSource):
         return cls(url=url, headers=headers)
 
     async def connect(self) -> MCPToolSource:
-        if self._session is not None:
+        async with self._connect_lock:
+            if self._session is not None:
+                return self
+            try:
+                from mcp import ClientSession
+            except ImportError as exc:  # pragma: no cover
+                raise ShankitError(
+                    "MCPToolSource requires the 'mcp' package. Install with: pip install shankit[mcp]"
+                ) from exc
+
+            stack = AsyncExitStack()
+            try:
+                if self._url is not None:
+                    from mcp.client.streamable_http import streamablehttp_client
+
+                    read, write, _ = await stack.enter_async_context(
+                        streamablehttp_client(self._url, headers=self._headers)
+                    )
+                else:
+                    from mcp import StdioServerParameters
+                    from mcp.client.stdio import stdio_client
+
+                    assert self._command is not None  # __init__ enforces command xor url
+                    params = StdioServerParameters(
+                        command=self._command, args=self._args, env=self._env
+                    )
+                    read, write = await stack.enter_async_context(stdio_client(params))
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+            except BaseException:
+                await stack.aclose()
+                raise
+            self._stack = stack
+            self._session = session
             return self
-        try:
-            from mcp import ClientSession
-        except ImportError as exc:  # pragma: no cover
-            raise ShankitError(
-                "MCPToolSource requires the 'mcp' package. Install with: pip install shankit[mcp]"
-            ) from exc
-
-        stack = AsyncExitStack()
-        try:
-            if self._url is not None:
-                from mcp.client.streamable_http import streamablehttp_client
-
-                read, write, _ = await stack.enter_async_context(
-                    streamablehttp_client(self._url, headers=self._headers)
-                )
-            else:
-                from mcp import StdioServerParameters
-                from mcp.client.stdio import stdio_client
-
-                params = StdioServerParameters(
-                    command=self._command, args=self._args, env=self._env
-                )
-                read, write = await stack.enter_async_context(stdio_client(params))
-            session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-        except BaseException:
-            await stack.aclose()
-            raise
-        self._stack = stack
-        self._session = session
-        return self
 
     async def aclose(self) -> None:
         if self._stack is not None:
