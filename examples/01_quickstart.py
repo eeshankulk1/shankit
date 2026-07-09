@@ -70,6 +70,10 @@ async def main() -> None:
             print(event.text, end="", flush=True)
         elif event.type == "step":
             print(f"\n[{event.status}] {event.title}")
+        elif event.type == "error":
+            # The stream's failure contract: expected failures end the stream
+            # with a calm, human-safe error event (never a raw traceback).
+            print(f"\n[error] {event.message}")
         elif event.type == "done":
             print(f"\n(done — {event.usage.input_tokens} in / {event.usage.output_tokens} out)")
 

@@ -62,6 +62,8 @@ async def main() -> None:
             print(f"\n  [{event.status}] {event.title}")
         elif event.type == "source":
             print(f"\n  source: {event.source.title}")
+        elif event.type == "error":
+            print(f"\n[error] {event.message}")
         elif event.type == "done":
             print(f"\n(total usage across all agents: {event.usage})")
 
