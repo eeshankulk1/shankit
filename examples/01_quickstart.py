@@ -7,7 +7,6 @@ Run: python examples/01_quickstart.py
 import asyncio
 
 from pydantic import BaseModel, Field
-
 from shankit import Agent, ToolError, tool
 
 # --- capability: tools are code -------------------------------------------
@@ -60,9 +59,7 @@ async def main() -> None:
     context = {"user_id": "u1"}
 
     # Structured run: a typed, validated deliverable (the caller chooses).
-    result = await agent.run(
-        "Summarize my orders.", context=context, output_type=OrdersSummary
-    )
+    result = await agent.run("Summarize my orders.", context=context, output_type=OrdersSummary)
     print("structured:", result.output)
     print("tools used:", [record.tool for record in result.trajectory])
     print("usage:", result.usage)
@@ -73,6 +70,10 @@ async def main() -> None:
             print(event.text, end="", flush=True)
         elif event.type == "step":
             print(f"\n[{event.status}] {event.title}")
+        elif event.type == "error":
+            # The stream's failure contract: expected failures end the stream
+            # with a calm, human-safe error event (never a raw traceback).
+            print(f"\n[error] {event.message}")
         elif event.type == "done":
             print(f"\n(done — {event.usage.input_tokens} in / {event.usage.output_tokens} out)")
 

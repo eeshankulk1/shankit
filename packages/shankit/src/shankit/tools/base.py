@@ -69,7 +69,9 @@ class ToolSource(abc.ABC):
         """The tools this source currently offers."""
 
     @abc.abstractmethod
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         """Execute one tool by name.
 
         Must raise :class:`shankit.ToolNotFoundError` for unknown names.
@@ -81,3 +83,22 @@ def is_tool_source(obj: Any) -> bool:
     if isinstance(obj, ToolSource):
         return True
     return callable(getattr(obj, "list_tools", None)) and callable(getattr(obj, "execute", None))
+
+
+def single_task_tool_def(name: str, description: str) -> ToolDef:
+    """The one-tool schema shared by delegation-style sources (a sub-agent,
+    a network as a tool): a single required ``task`` string."""
+    return ToolDef(
+        name=name,
+        description=description,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "The task for this agent, in plain language.",
+                }
+            },
+            "required": ["task"],
+        },
+    )

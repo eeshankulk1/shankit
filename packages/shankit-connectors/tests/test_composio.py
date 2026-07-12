@@ -19,10 +19,9 @@ class FakeComposio:
         self.tools = SimpleNamespace(
             get_raw_composio_tools=self._get_raw_tools, execute=self._execute
         )
-        self.connected_accounts = SimpleNamespace(
-            initiate=self._initiate, get=self._get_account
-        )
+        self.connected_accounts = SimpleNamespace(initiate=self._initiate, get=self._get_account)
         self.account_status = "INITIATED"
+        self.account_owner = None  # set to a user id to exercise ownership checks
 
     def _get_raw_tools(self, tools=None, toolkits=None):
         self.raw_tool_queries.append({"tools": tools, "toolkits": toolkits})
@@ -69,7 +68,10 @@ class FakeComposio:
 
     def _get_account(self, connection_id):
         assert connection_id == "conn_1"
-        return {"id": "acc_9", "status": self.account_status}
+        account = {"id": "acc_9", "status": self.account_status}
+        if self.account_owner is not None:
+            account["user_id"] = self.account_owner
+        return account
 
 
 class FakeComposioWithVersionCheck(FakeComposio):
@@ -102,15 +104,11 @@ async def test_list_tools_converts_to_anthropic_shape(connector):
 
 
 async def test_allowlist_filters_tools():
-    connector = ComposioConnector(
-        toolkit="GMAIL", tools=["gmail_search"], client=FakeComposio()
-    )
+    connector = ComposioConnector(toolkit="GMAIL", tools=["gmail_search"], client=FakeComposio())
     defs = await connector.list_tools()
     assert [d.name for d in defs] == ["GMAIL_SEARCH"]
     # An allowlisted connector fetches exactly its slugs, not the whole toolkit.
-    assert connector._client.raw_tool_queries == [
-        {"tools": ["GMAIL_SEARCH"], "toolkits": None}
-    ]
+    assert connector._client.raw_tool_queries == [{"tools": ["GMAIL_SEARCH"], "toolkits": None}]
     with pytest.raises(ToolNotFoundError):
         await connector.execute("GMAIL_SEND_EMAIL", {"to": "x"})
 
@@ -161,9 +159,7 @@ async def test_connection_lifecycle(connector):
     )
 
     status = await connector.check_status(ctx, connection_id="conn_1")
-    assert status == ConnectionStatus(
-        connection_id="conn_1", status="pending", account_id="acc_9"
-    )
+    assert status == ConnectionStatus(connection_id="conn_1", status="pending", account_id="acc_9")
 
     connector._client.account_status = "ACTIVE"
     adopted = await connector.adopt(ctx, connection_id="conn_1")
@@ -172,12 +168,77 @@ async def test_connection_lifecycle(connector):
     assert adopted.account_id == "acc_9"
 
 
+async def test_unknown_connection_status_is_terminal(connector):
+    """A status this connector version doesn't know must not read as
+    'pending' - apps would poll a dead connection forever."""
+    connector._client.account_status = "SOME_FUTURE_STATUS"
+    status = await connector.check_status({"user_id": "u42"}, connection_id="conn_1")
+    assert status.status == "failed"
+
+    connector._client.account_status = "INACTIVE"
+    status = await connector.check_status({"user_id": "u42"}, connection_id="conn_1")
+    assert status.status == "failed"
+
+
+async def test_cross_tenant_connection_is_rejected(connector):
+    """With a user_id extractor configured, polling/adopting a connection
+    owned by a different vendor user must fail loudly."""
+    connector._client.account_owner = "u42"
+    ok = await connector.check_status({"user_id": "u42"}, connection_id="conn_1")
+    assert ok.connection_id == "conn_1"
+
+    with pytest.raises(PermissionError, match="belongs to Composio user 'u42'"):
+        await connector.check_status({"user_id": "u99"}, connection_id="conn_1")
+    with pytest.raises(PermissionError):
+        await connector.adopt({"user_id": "u99"}, connection_id="conn_1")
+
+
+async def test_single_tenant_skips_ownership_check():
+    client = FakeComposio()
+    client.account_owner = "whoever"
+    connector = ComposioConnector(toolkit="GMAIL", client=client)
+    status = await connector.check_status(connection_id="conn_1")
+    assert status.connection_id == "conn_1"  # no extractor -> no identity to scope to
+
+
+async def test_initiate_without_connection_id_raises():
+    class NoIdComposio(FakeComposio):
+        def _initiate(self, user_id, auth_config_id):
+            return SimpleNamespace(id=None, redirect_url="https://x")
+
+    connector = ComposioConnector(
+        toolkit="GMAIL", user_id=lambda ctx: ctx["user_id"], client=NoIdComposio()
+    )
+    with pytest.raises(RuntimeError, match="no connection id"):
+        await connector.initiate({"user_id": "u42"}, auth_config_id="ac_1")
+
+
+async def test_version_required_error_is_actionable():
+    class ToolVersionRequiredError(Exception):  # matched by class name
+        pass
+
+    class UnpinnedComposio(FakeComposio):
+        def _execute(self, slug, user_id, arguments):
+            raise ToolVersionRequiredError("version required")
+
+    connector = ComposioConnector(toolkit="GMAIL", client=UnpinnedComposio())
+    with pytest.raises(ToolError, match="skip_version_check=True"):
+        await connector.execute("GMAIL_SEARCH", {})
+
+
+async def test_warm_cache_enforces_tool_not_found():
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600)
+    await connector.list_tools()
+    with pytest.raises(ToolNotFoundError):
+        await connector.execute("NOT_A_TOOL", {})
+    # Nothing was forwarded to the vendor for the unknown name.
+    assert connector._client.executed == []
+
+
 async def test_tools_cache_ttl_skips_refetch(monkeypatch):
     clock = {"now": 1000.0}
     monkeypatch.setattr("shankit_connectors.composio.time.monotonic", lambda: clock["now"])
-    connector = ComposioConnector(
-        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
-    )
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600)
 
     first = await connector.list_tools()
     within_ttl = await connector.list_tools()
@@ -192,9 +253,7 @@ async def test_tools_cache_ttl_skips_refetch(monkeypatch):
 async def test_cached_catalog_is_mutation_safe():
     """Consumers that post-process ToolDefs in place (schema slimming) must
     not poison the shared cache."""
-    connector = ComposioConnector(
-        toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600
-    )
+    connector = ComposioConnector(toolkit="GMAIL", client=FakeComposio(), tools_cache_ttl=600)
     first = await connector.list_tools()
     first[0].input_schema["properties"]["to"]["type"] = "MUTATED"
     second = await connector.list_tools()
@@ -241,11 +300,7 @@ async def test_connector_is_a_plain_tool_source(connector):
             self.turn += 1
             if self.turn == 1:
                 return ModelResponse(
-                    content=[
-                        ToolUseBlock(
-                            id="t1", name="GMAIL_SEND_EMAIL", input={"to": "a@b.c"}
-                        )
-                    ],
+                    content=[ToolUseBlock(id="t1", name="GMAIL_SEND_EMAIL", input={"to": "a@b.c"})],
                     stop_reason="tool_use",
                     usage=Usage(requests=1),
                 )
@@ -259,9 +314,7 @@ async def test_connector_is_a_plain_tool_source(connector):
                 yield ModelTextDelta(text=response.text)
             yield ModelResponseComplete(response=response)
 
-    agent = Agent(
-        name="mailer", model="fake", model_client=ScriptedModel(), tools=[connector]
-    )
+    agent = Agent(name="mailer", model="fake", model_client=ScriptedModel(), tools=[connector])
     result = await agent.run("send it", context={"user_id": "u42"}, output_type=str)
     assert result.text == "sent"
     assert result.trajectory[0].tool == "GMAIL_SEND_EMAIL"

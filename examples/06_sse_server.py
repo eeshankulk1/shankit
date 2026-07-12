@@ -8,7 +8,6 @@ Consume:  see examples/07_ts_consumer.ts (@shankit/client)
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-
 from shankit import Agent, sse_stream, tool
 
 

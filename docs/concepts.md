@@ -32,6 +32,12 @@ Agent(
     describe_step=...,          # optional observability hook
     max_iterations=20,          # loop safety bound
     max_tokens=4096,
+    max_tool_result_chars=None, # loop safety bound: cap any single tool result's
+                                # content (marker appended, result marked truncated).
+                                # None disables. Set it when tools can return
+                                # unbounded payloads (files over MCP, vendor APIs) —
+                                # one oversized result can otherwise exceed the
+                                # model's context window and kill the run.
 )
 ```
 
@@ -43,8 +49,16 @@ result.text        # the TRANSCRIPT: every assistant text pass, joined with blan
 result.usage       # Usage(input_tokens, output_tokens, ...), including sub-agents
 result.trajectory  # list[ToolCallRecord] — every tool call, for evals
 result.sources     # list[Source] surfaced during the run
-result.truncated   # True if any pass (or sub-agent) stopped at the token limit
+result.truncated   # True if any pass (or sub-agent) stopped at the token limit,
+                   # or any tool result was capped by max_tool_result_chars
 ```
+
+`truncated` is deliberately sticky — a cut-off intermediate pass can corrupt a
+run as much as a cut-off answer. Caveat for orchestrators: if you run
+sub-agents with deliberately tight `max_tokens` budgets (cheap fact-finder
+patterns), a sub-agent brushing its budget flips the *parent* run's flag too.
+Treat the flag as "something, somewhere, was cut" — not as "the final answer
+is broken" — and decide what to surface to users accordingly.
 
 `output` is the deliverable to score and act on; `text` is what you display and
 persist. They differ deliberately: interim narration belongs in the transcript,

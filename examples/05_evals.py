@@ -6,7 +6,6 @@ Requires: pip install shankit[anthropic]  and  ANTHROPIC_API_KEY set.
 import asyncio
 
 from pydantic import BaseModel
-
 from shankit import Agent, tool
 from shankit.evals import Case, Dataset, evaluate, exact_match, trajectory
 
@@ -32,8 +31,11 @@ classifier = Agent(
 
 dataset = Dataset(
     cases=[
-        Case(name="obvious-spam", input="URGENT!! You are a WINNER, claim your FREE prize",
-             expected={"label": "spam"}),
+        Case(
+            name="obvious-spam",
+            input="URGENT!! You are a WINNER, claim your FREE prize",
+            expected={"label": "spam"},
+        ),
         Case(name="normal-mail", input="Lunch tomorrow at noon?", expected={"label": "ham"}),
     ]
 )

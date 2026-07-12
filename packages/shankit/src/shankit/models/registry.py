@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from collections.abc import Callable
 from typing import Optional
 
@@ -25,13 +26,35 @@ __all__ = ["register_provider", "resolve_model", "shutdown"]
 ProviderFactory = Callable[[], ModelClient]
 
 _PROVIDERS: dict[str, ProviderFactory] = {}
-_CLIENT_CACHE: dict[str, ModelClient] = {}
+
+# Cached clients hold HTTP transports that bind to the event loop they first
+# run on, so the cache is keyed per loop: a script calling asyncio.run() twice
+# gets a fresh client the second time instead of one bound to a closed loop.
+# Entries disappear with their loop; clients resolved outside any loop go in
+# the fallback dict.
+_LOOP_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, ModelClient]] = (
+    weakref.WeakKeyDictionary()
+)
+_NO_LOOP_CLIENTS: dict[str, ModelClient] = {}
+
+
+def _client_cache() -> dict[str, ModelClient]:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return _NO_LOOP_CLIENTS
+    cache = _LOOP_CLIENTS.get(loop)
+    if cache is None:
+        cache = {}
+        _LOOP_CLIENTS[loop] = cache
+    return cache
 
 
 def register_provider(name: str, factory: ProviderFactory) -> None:
     """Register a provider prefix for ``"name:model_id"`` specs."""
     _PROVIDERS[name] = factory
-    _CLIENT_CACHE.pop(name, None)
+    for cache in (_NO_LOOP_CLIENTS, *list(_LOOP_CLIENTS.values())):
+        cache.pop(name, None)
 
 
 def _default_factories() -> None:
@@ -48,9 +71,8 @@ def _default_factories() -> None:
 def resolve_model(spec: str, client: Optional[ModelClient] = None) -> tuple[ModelClient, str]:
     """Resolve a model spec into ``(client, model_id)``.
 
-    If ``client`` is given, ``spec`` is passed through as the model id
-    unchanged (with any recognized ``provider:`` prefix stripped only when
-    it matches nothing — i.e. verbatim).
+    If ``client`` is given, resolution is bypassed: ``spec`` is passed
+    through unchanged as the model id.
     """
     if client is not None:
         return client, spec
@@ -69,24 +91,30 @@ def resolve_model(spec: str, client: Optional[ModelClient] = None) -> tuple[Mode
             f"Unknown model provider {provider!r} in spec {spec!r}. "
             f"Known providers: {known}. Register more with register_provider()."
         )
-    if provider not in _CLIENT_CACHE:
-        _CLIENT_CACHE[provider] = factory()
-    return _CLIENT_CACHE[provider], model_id
+    cache = _client_cache()
+    if provider not in cache:
+        cache[provider] = factory()
+    return cache[provider], model_id
 
 
 async def shutdown() -> None:
-    """Close and forget every cached provider client.
+    """Close and forget the cached provider clients of the current loop.
 
-    Resolved clients are cached for the process lifetime, which is right
-    for servers but leaks unclosed-transport warnings in short-lived
-    scripts. Call ``await shankit.models.shutdown()`` at the end of such
-    scripts; the next ``resolve_model`` after a shutdown simply constructs
-    fresh clients. Closes run concurrently, and one client failing to
-    close never prevents the others from closing (failures are logged,
-    not raised — this is a cleanup helper, typically in a ``finally``).
+    Resolved clients are cached per event loop for that loop's lifetime,
+    which is right for servers but leaks unclosed-transport warnings in
+    short-lived scripts. Call ``await shankit.models.shutdown()`` at the
+    end of such scripts; the next ``resolve_model`` after a shutdown simply
+    constructs fresh clients. Closes run concurrently, and one client
+    failing to close never prevents the others from closing (failures are
+    logged, not raised — this is a cleanup helper, typically in a
+    ``finally``).
     """
-    clients = list(_CLIENT_CACHE.values())
-    _CLIENT_CACHE.clear()
+    cache = _client_cache()
+    clients = list(cache.values())
+    cache.clear()
+    if cache is not _NO_LOOP_CLIENTS:
+        clients.extend(_NO_LOOP_CLIENTS.values())
+        _NO_LOOP_CLIENTS.clear()
     results = await asyncio.gather(*(c.aclose() for c in clients), return_exceptions=True)
     for client, result in zip(clients, results, strict=True):
         if isinstance(result, BaseException):

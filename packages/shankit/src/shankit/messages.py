@@ -12,14 +12,14 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import BaseModel, Field
 
 __all__ = [
-    "TextBlock",
-    "ToolUseBlock",
-    "ToolResultBlock",
     "ContentBlock",
     "Message",
-    "user_message",
+    "TextBlock",
+    "ToolResultBlock",
+    "ToolUseBlock",
     "assistant_text",
     "coerce_message",
+    "user_message",
 ]
 
 

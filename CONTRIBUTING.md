@@ -21,10 +21,11 @@ When in doubt, open an issue to discuss the shape before writing code.
 
 ## Development setup
 
+One command installs both packages (editable) and every dev tool, pinned by
+the committed `uv.lock`:
+
 ```bash
-uv venv
-uv pip install -e packages/shankit -e packages/shankit-connectors \
-    pytest pytest-asyncio anthropic openai ruff
+uv sync --all-packages
 ```
 
 The test suite fakes the LLM, Composio, and network boundaries, so it runs
@@ -35,17 +36,19 @@ anywhere without credentials or network access.
 CI runs exactly these — run them locally before opening a PR:
 
 ```bash
-# Python core + connector tests (~150 tests, no network)
-uv run pytest packages/shankit/tests packages/shankit-connectors/tests
+# Python core + connector tests (no network)
+uv run pytest packages
 
-# Lint (ruff, line length 100)
-uv run ruff check packages scripts
+# Lint + formatting (ruff) and type checking (pyright)
+uv run ruff check packages scripts examples
+uv run ruff format --check packages scripts examples
+uv run pyright
 
 # TypeScript event types must match the Python source of truth
-python scripts/generate_ts_events.py --check
+uv run python scripts/generate_ts_events.py --check
 
 # TypeScript client build + tests
-cd packages/client-ts && npm install && npm test
+cd packages/client-ts && npm ci && npm test
 ```
 
 ### Event types are generated, not hand-written

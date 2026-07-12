@@ -2,8 +2,8 @@ from .base import ConnectionRequest, ConnectionStatus, Connector
 from .composio import ComposioConnector
 
 __all__ = [
-    "Connector",
+    "ComposioConnector",
     "ConnectionRequest",
     "ConnectionStatus",
-    "ComposioConnector",
+    "Connector",
 ]

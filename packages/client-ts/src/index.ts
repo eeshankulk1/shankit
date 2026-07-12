@@ -39,10 +39,11 @@ export async function* streamEvents(
 ): AsyncGenerator<AgentEvent, void, void> {
   const { fetch: fetchImpl, ...init } = options;
   const doFetch = fetchImpl ?? fetch;
-  const response = await doFetch(input, {
-    ...init,
-    headers: { accept: "text/event-stream", ...(init.headers ?? {}) },
-  });
+  // Normalize through Headers: spreading a Headers instance (or the
+  // [["k","v"]] array form) as an object silently drops every entry.
+  const headers = new Headers(init.headers);
+  if (!headers.has("accept")) headers.set("accept", "text/event-stream");
+  const response = await doFetch(input, { ...init, headers });
   if (!response.ok) {
     throw new Error(`shankit: stream request failed with HTTP ${response.status}`);
   }

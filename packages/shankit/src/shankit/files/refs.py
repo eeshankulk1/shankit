@@ -34,7 +34,9 @@ def resolve_ref(ref: str, registry: Registry) -> Any:
     try:
         obj: Any = importlib.import_module(module_path)
     except ImportError as exc:
-        raise AgentFileError(f"Could not import module {module_path!r} for reference {ref!r}: {exc}") from exc
+        raise AgentFileError(
+            f"Could not import module {module_path!r} for reference {ref!r}: {exc}"
+        ) from exc
     for part in attr_path.split("."):
         try:
             obj = getattr(obj, part)

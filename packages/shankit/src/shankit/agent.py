@@ -31,6 +31,7 @@ from typing import (
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from . import _tracing
+from ._serialize import dump_str
 from .events import (
     AgentEvent,
     DoneEvent,
@@ -47,6 +48,7 @@ from .exceptions import (
     OutputValidationError,
     ShankitError,
     ToolError,
+    ToolNotFoundError,
 )
 from .messages import (
     Message,
@@ -66,11 +68,17 @@ from .models.base import (
 from .models.registry import resolve_model
 from .observe import StepDescriber, StepInfo, default_step_describer
 from .tools.aggregate import CompositeToolSource
-from .tools.base import ToolDef, ToolResult, ToolSource, is_tool_source
+from .tools.base import (
+    ToolDef,
+    ToolResult,
+    ToolSource,
+    is_tool_source,
+    single_task_tool_def,
+)
 from .tools.local import FunctionTool, FunctionToolSource
 from .usage import Usage
 
-__all__ = ["Agent", "RunResult", "ToolCallRecord", "OUTPUT_TOOL_NAME"]
+__all__ = ["OUTPUT_TOOL_NAME", "Agent", "RunResult", "ToolCallRecord"]
 
 logger = logging.getLogger("shankit")
 
@@ -161,6 +169,16 @@ class Agent:
         describe_step: Step-describer for user-facing narration; return
             ``None`` from it to hide a call. Defaults to a generic describer.
         model_client: Escape hatch — bring your own :class:`ModelClient`.
+        max_tool_result_chars: Loop safety bound, like ``max_iterations``:
+            cap any single tool result's ``content`` at this many characters
+            before it enters the conversation. Over-cap content is cut, a
+            truncation marker is appended (so the returned content slightly
+            exceeds the cap), and the result is marked ``truncated`` —
+            feeding the run's sticky ``truncated`` flag. ``None`` (default)
+            disables the cap. Without one, a single oversized result — a
+            big file over MCP, a bulky vendor payload, a verbose sub-agent —
+            can exceed the model's context window and kill the run with a
+            non-retryable provider error.
     """
 
     def __init__(
@@ -177,8 +195,11 @@ class Agent:
         max_iterations: int = 20,
         output_retries: int = 2,
         max_tokens: int = 4096,
+        max_tool_result_chars: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> None:
+        if max_tool_result_chars is not None and max_tool_result_chars <= 0:
+            raise ValueError("max_tool_result_chars must be positive (or None to disable)")
         self.name = name
         self.model = model
         self.instructions = instructions
@@ -189,6 +210,7 @@ class Agent:
         self.max_iterations = max_iterations
         self.output_retries = output_retries
         self.max_tokens = max_tokens
+        self.max_tool_result_chars = max_tool_result_chars
         self.temperature = temperature
         self.tool_source: Optional[ToolSource] = _normalize_tools(tools)
 
@@ -204,11 +226,17 @@ class Agent:
         *,
         context: Any = None,
         output_type: type[OutputT],
+        on_event: Optional[Callable[[AgentEvent], None]] = None,
         history: Optional[Sequence[Any]] = None,
     ) -> RunResult[OutputT]: ...
     @overload
     async def run(
-        self, prompt: str, *, context: Any = None, history: Optional[Sequence[Any]] = None
+        self,
+        prompt: str,
+        *,
+        context: Any = None,
+        on_event: Optional[Callable[[AgentEvent], None]] = None,
+        history: Optional[Sequence[Any]] = None,
     ) -> RunResult[Any]: ...
 
     async def run(
@@ -226,9 +254,11 @@ class Agent:
         ``output_type=str`` makes the final assistant text the deliverable
         (the full transcript stays on ``RunResult.text``).
         ``on_event`` optionally observes the event stream (steps, sources,
-        usage) while the structured run progresses. ``history`` is prior
-        conversation turns (``Message`` objects or ``{"role", "content"}``
-        dicts) prepended before this call's ``prompt``.
+        usage) while the structured run progresses; it must be a plain
+        sync callable, and an exception it raises aborts the run. ``history``
+        is prior conversation turns (``Message`` objects or
+        ``{"role", "content"}`` dicts) prepended before this call's
+        ``prompt``.
 
         A failed model provider call raises :class:`shankit.ModelError`
         (check ``retryable`` for backoff) — never a provider SDK exception.
@@ -333,6 +363,12 @@ class Agent:
 
         output_spec: Optional[_OutputSpec] = None
         if output_type is not None and output_type is not str:
+            if OUTPUT_TOOL_NAME in known_tools:
+                raise ShankitError(
+                    f"Agent {self.name!r} has a tool named {OUTPUT_TOOL_NAME!r}, which "
+                    "collides with the synthetic structured-output tool. Rename the "
+                    "tool, or run this agent unstructured."
+                )
             output_spec = _OutputSpec(output_type)
             tool_defs = [*tool_defs, output_spec.tool_def]
 
@@ -433,7 +469,9 @@ class Agent:
                     continue
                 # For output_type=str the deliverable is the final pass —
                 # the answer — not the transcript with its interim passes.
-                output = (texts[-1] if texts else "") if output_type is str else None
+                # This pass's text specifically: an empty final pass must not
+                # promote an earlier pass's narration to "the answer".
+                output = turn_text if output_type is str else None
                 yield done_event(output)
                 return
 
@@ -467,7 +505,7 @@ class Agent:
 
                 step_counter += 1
                 step_id = f"s{step_counter}"
-                info = self._describe(tool_use, context, known_tools)
+                info = self._describe(tool_use, context)
                 if info is not None:
                     yield StepEvent(
                         id=step_id,
@@ -532,9 +570,7 @@ class Agent:
                     is_error=result.is_error,
                 )
 
-            messages.append(
-                Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses])
-            )
+            messages.append(Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses]))
 
             if finished is not None:
                 yield done_event(finished[0])
@@ -555,9 +591,7 @@ class Agent:
             return str(resolved)
         return instructions
 
-    def _describe(
-        self, tool_use: ToolUseBlock, context: Any, known_tools: set[str]
-    ) -> Optional[StepInfo]:
+    def _describe(self, tool_use: ToolUseBlock, context: Any) -> Optional[StepInfo]:
         if self.describe_step is None:
             return None
         try:
@@ -579,15 +613,41 @@ class Agent:
             with _tracing.span("shankit.tool.execute", tool=tool_use.name, agent=self.name):
                 raw = await self.tool_source.execute(tool_use.name, tool_use.input, context)
         except ToolError as exc:
-            return ToolResult(content=str(exc), is_error=True)
+            return self._cap_result(tool_use.name, ToolResult(content=str(exc), is_error=True))
         except Exception:
             logger.exception("Tool %r failed", tool_use.name)
             return ToolResult(
                 content=f"The tool {tool_use.name!r} failed unexpectedly.", is_error=True
             )
         if isinstance(raw, str):  # leniency for duck-typed sources
-            return ToolResult(content=raw)
-        return raw
+            raw = ToolResult(content=raw)
+        return self._cap_result(tool_use.name, raw)
+
+    def _cap_result(self, tool_name: str, result: ToolResult) -> ToolResult:
+        """Apply ``max_tool_result_chars`` (loop safety bound, like
+        ``max_iterations``): one oversized result must not be able to exceed
+        the model's context window and kill the run. Applied at this choke
+        point so every source — local functions, MCP, connectors, sub-agents,
+        and ``ToolError`` text — is covered uniformly. The capped content is
+        what the model, the trajectory, and evals all see."""
+        cap = self.max_tool_result_chars
+        if cap is None or len(result.content) <= cap:
+            return result
+        logger.warning(
+            "Agent %r: tool %r returned %d chars; capped at max_tool_result_chars=%d.",
+            self.name,
+            tool_name,
+            len(result.content),
+            cap,
+        )
+        # Copy, don't mutate: the source may retain its ToolResult object.
+        return result.model_copy(
+            update={
+                "content": result.content[:cap]
+                + f"… [truncated: tool result exceeded {cap} characters]",
+                "truncated": True,
+            }
+        )
 
     # ------------------------------------------------------------- as_tool
 
@@ -634,26 +694,11 @@ class _AgentToolSource(ToolSource):
         self.output = output
 
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
-        return [
-            ToolDef(
-                name=self.tool_name,
-                description=self.description,
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "task": {
-                            "type": "string",
-                            "description": "The task for this agent, in plain language.",
-                        }
-                    },
-                    "required": ["task"],
-                },
-            )
-        ]
+        return [single_task_tool_def(self.tool_name, self.description)]
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
-        from .exceptions import ToolNotFoundError
-
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         if name != self.tool_name:
             raise ToolNotFoundError(name)
         task = str(arguments.get("task", "")).strip()
@@ -662,7 +707,7 @@ class _AgentToolSource(ToolSource):
         try:
             if self.output == "structured":
                 result = await self.agent.run(task, context=context)
-                content = _dump_output(result.output)
+                content = dump_str(result.output)
             else:
                 result = await self.agent.run(task, context=context, output_type=str)
                 content = result.output
@@ -680,16 +725,6 @@ class _AgentToolSource(ToolSource):
             usage=result.usage,
             truncated=result.truncated,
         )
-
-
-def _dump_output(output: Any) -> str:
-    if isinstance(output, BaseModel):
-        return output.model_dump_json()
-    if isinstance(output, str):
-        return output
-    import json
-
-    return json.dumps(output, default=str)
 
 
 def _sanitize_tool_name(name: str) -> str:

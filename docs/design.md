@@ -492,3 +492,22 @@ where the original text had a gap (flagged ⚠):
     client, or opt in. The kwarg is only sent when opted in, because the
     declared floor (`composio>=0.8.0`) predates it and an unconditional
     forward would break every default-path user on an older SDK.
+14. **Tool-result size is a loop safety bound.** A throu production incident
+    (July 2026): a lookup sub-agent deep-fetched nine un-slimmed HTML emails
+    and the run died mid-turn at 244,716 tokens > the 200K context window —
+    a non-retryable provider 400 the end user saw as "Gmail is unavailable".
+    The overflow happened in the loop's own `messages` list, so the guard
+    lives with the loop's other runaway bounds (`max_iterations`,
+    `max_tokens`), not in any one tool source: `Agent(max_tool_result_chars=)`
+    caps every source uniformly — local functions, MCP, connectors,
+    sub-agents, and `ToolError` text — at the `_execute_tool` choke point,
+    appends a marker, and marks the result `truncated` (composing with the
+    existing sticky flag rather than adding new surface). Default `None`:
+    a silent default cap could corrupt structured pipelines that legitimately
+    move large payloads, so the consumer opts in. Deliberately per-result,
+    not per-turn: bounding the *sum* would need request-size awareness in
+    the loop (a token estimator, provider-specific limits) — over-engineering
+    until a consumer needs it. Semantic slimming (which fields matter, what a
+    "preview" is) stays the consumer's job via `transform_result`; the cap is
+    only the backstop that turns "the whole turn dies" into "one result is
+    cut".

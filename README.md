@@ -115,6 +115,8 @@ async for event in agent.stream("Where is order 42?", context={"user_id": "u1"})
         print(event.text, end="", flush=True)
     elif event.type == "step":
         print(f"\n[{event.status}] {event.title}")   # user-facing narration
+    elif event.type == "error":
+        print(f"\n[error] {event.message}")          # calm, human-safe terminal event
     elif event.type == "done":
         print(f"\n({event.usage.input_tokens} in / {event.usage.output_tokens} out)")
 ```
@@ -232,7 +234,9 @@ Full documentation lives in [`docs/`](docs/README.md):
 - **[Getting started](docs/getting-started.md)** — install, your first agent, both run modes.
 - **[Core concepts](docs/concepts.md)** — the tool seam, per-run context, run modes, multi-agent, models, errors.
 - **[File-first definitions](docs/file-first.md)** — frontmatter reference, substitution, import vs. registry refs.
+- **[Connectors](docs/connectors.md)** — the OAuth connector contract, the connection lifecycle, Composio.
 - **[Durability & networks](docs/durability.md)** — the checkpointer contract and the experimental graph.
+- **[Evals](docs/evals.md)** — datasets, scorers, model-graded judging, trajectory assertions.
 - **[Design decision record](docs/design.md)** — why the framework is shaped this way (the living spec).
 
 ## How shankit compares
@@ -251,13 +255,13 @@ shankit's differentiation is **orientation**, not raw primitives — four things
 ## Development
 
 ```bash
-uv venv && uv pip install -e packages/shankit -e packages/shankit-connectors \
-    pytest pytest-asyncio anthropic openai ruff
+uv sync --all-packages          # both packages editable + all dev tools, pinned by uv.lock
 
-uv run pytest packages/shankit/tests packages/shankit-connectors/tests   # ~150 tests, no network
-uv run ruff check packages scripts
-python scripts/generate_ts_events.py --check   # verify TS event types are in sync
-cd packages/client-ts && npm install && npm test
+uv run pytest packages          # core + connector tests, no network
+uv run ruff check packages scripts examples && uv run ruff format --check packages scripts examples
+uv run pyright                  # the types are part of the public contract
+uv run python scripts/generate_ts_events.py --check   # TS event types in sync
+cd packages/client-ts && npm ci && npm test
 ```
 
 The test suite fakes the LLM, Composio, and network boundaries, so it runs anywhere without credentials.

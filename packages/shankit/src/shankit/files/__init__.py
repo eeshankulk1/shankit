@@ -4,11 +4,11 @@ from .registry import Registry, default_registry, register
 from .render import render_prompt
 
 __all__ = [
-    "load_agent",
-    "load_agents",
     "Registry",
     "default_registry",
+    "load_agent",
+    "load_agents",
     "register",
-    "resolve_ref",
     "render_prompt",
+    "resolve_ref",
 ]

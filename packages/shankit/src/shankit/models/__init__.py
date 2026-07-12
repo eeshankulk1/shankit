@@ -6,22 +6,28 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    default_stream_from_complete,
+    map_sdk_error,
     model_error_for_status,
+    wrap_sdk_errors,
 )
 from .registry import register_provider, resolve_model, shutdown
 
 __all__ = [
+    "ForcedTool",
     "ModelClient",
     "ModelRequest",
     "ModelResponse",
-    "ModelTextDelta",
     "ModelResponseComplete",
     "ModelStreamEvent",
-    "ForcedTool",
+    "ModelTextDelta",
+    "default_stream_from_complete",
+    "map_sdk_error",
     "model_error_for_status",
     "register_provider",
     "resolve_model",
     "shutdown",
+    "wrap_sdk_errors",
 ]
 
 

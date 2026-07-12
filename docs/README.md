@@ -15,7 +15,9 @@ reference you can reach for when you need it.
 | **[Getting started](getting-started.md)** | Install, define your first agent, run it structured and streamed. |
 | **[Core concepts](concepts.md)** | The tool seam, the opaque per-run context, the two run modes, multi-agent, models, and the uniform error contract. |
 | **[File-first definitions](file-first.md)** | Authoring agents as Markdown files: the full frontmatter reference, prompt substitution, and import-vs-registry references. |
+| **[Connectors](connectors.md)** | The opt-in OAuth integration layer: the connector contract, the connection lifecycle, and the official Composio implementation. |
 | **[Durability & networks](durability.md)** | The `Checkpointer` contract, its shipped stores, and the experimental router-driven network for code-controlled flow and human-in-the-loop pauses. |
+| **[Evals](evals.md)** | Datasets, scorers, model-graded judging, and trajectory assertions over `RunResult`. |
 
 ## Reference
 

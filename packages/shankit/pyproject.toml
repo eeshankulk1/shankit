@@ -1,13 +1,14 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26"]  # PEP 639 SPDX license expression needs >=1.26
 build-backend = "hatchling.build"
 
 [project]
 name = "shankit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "An AI agent framework that takes the integration seam as seriously as the agent loop."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "shankit contributors" }]
 keywords = ["ai", "agents", "llm", "tools", "mcp"]
@@ -27,27 +28,35 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.40.0"]
-openai = ["openai>=1.40.0"]
+# Floors track the newest API surface each client sends unconditionally:
+# anthropic 0.83.0 added the top-level cache_control kwarg (sent by default);
+# openai 1.45.0 added max_completion_tokens (always sent).
+anthropic = ["anthropic>=0.83.0"]
+openai = ["openai>=1.45.0"]
 mcp = ["mcp>=1.2.0"]
 otel = ["opentelemetry-api>=1.25.0"]
 all = ["shankit[anthropic,openai,mcp,otel]"]
 
 [project.urls]
 Homepage = "https://github.com/eeshankulk1/shankit"
-Documentation = "https://github.com/eeshankulk1/shankit/blob/main/docs/design.md"
+Repository = "https://github.com/eeshankulk1/shankit"
+Issues = "https://github.com/eeshankulk1/shankit/issues"
+Documentation = "https://github.com/eeshankulk1/shankit/blob/main/docs/README.md"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "anthropic>=0.40.0",
-    "openai>=1.40.0",
+    "anthropic>=0.83.0",
+    "openai>=1.45.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.hatch.version]
+path = "src/shankit/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/shankit"]

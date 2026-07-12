@@ -17,8 +17,18 @@ Public surface (design §11):
 - Experimental graph/network: :mod:`shankit.experimental.graph`.
 """
 
+# Documented as reachable off the package (`shankit.evals`); import it so
+# that holds without a separate import. It is dependency-light. Placed after
+# the core imports because evals itself imports from shankit.agent.
+from . import evals
 from .agent import Agent, RunResult, ToolCallRecord
-from .durability import Checkpoint, Checkpointer, InMemoryCheckpointer, SqliteCheckpointer
+from .durability import (
+    Checkpoint,
+    Checkpointer,
+    InMemoryCheckpointer,
+    InterruptInfo,
+    SqliteCheckpointer,
+)
 from .events import (
     AgentEvent,
     DoneEvent,
@@ -59,67 +69,59 @@ from .usage import Usage
 __version__ = "0.1.0"
 
 __all__ = [
-    # agent
     "Agent",
-    "RunResult",
-    "ToolCallRecord",
-    # tool seam
-    "tool",
-    "ToolDef",
-    "ToolResult",
-    "ToolSource",
+    "AgentEvent",
+    "AgentFileError",
+    "Checkpoint",
+    "Checkpointer",
+    "CompositeToolSource",
+    "DoneEvent",
+    "ErrorEvent",
     "FunctionTool",
     "FunctionToolSource",
-    "CompositeToolSource",
+    "InMemoryCheckpointer",
+    "InterruptInfo",
     "MCPToolSource",
-    # events
-    "AgentEvent",
-    "TextDeltaEvent",
-    "StepEvent",
-    "SourceEvent",
-    "UsageEvent",
-    "ErrorEvent",
-    "DoneEvent",
-    "Source",
-    "Usage",
-    # observability
-    "StepInfo",
-    "StepDescriber",
-    "default_step_describer",
-    # models
+    "MaxIterationsError",
+    "Message",
     "ModelClient",
+    "ModelError",
     "ModelRequest",
     "ModelResponse",
-    "resolve_model",
-    "register_provider",
-    # messages (for ModelClient implementers)
-    "Message",
-    "TextBlock",
-    "ToolUseBlock",
-    "ToolResultBlock",
-    "coerce_message",
-    # files
-    "load_agent",
-    "load_agents",
+    "OutputValidationError",
+    "PromptVariableError",
     "Registry",
-    "default_registry",
-    "register",
-    # durability
-    "Checkpointer",
-    "Checkpoint",
-    "InMemoryCheckpointer",
-    "SqliteCheckpointer",
-    # sse
-    "format_sse",
-    "sse_stream",
-    # errors
+    "RunResult",
     "ShankitError",
+    "Source",
+    "SourceEvent",
+    "SqliteCheckpointer",
+    "StepDescriber",
+    "StepEvent",
+    "StepInfo",
+    "TextBlock",
+    "TextDeltaEvent",
+    "ToolCallRecord",
+    "ToolDef",
     "ToolError",
     "ToolNotFoundError",
-    "ModelError",
-    "OutputValidationError",
-    "MaxIterationsError",
-    "AgentFileError",
-    "PromptVariableError",
+    "ToolResult",
+    "ToolResultBlock",
+    "ToolSource",
+    "ToolUseBlock",
+    "Usage",
+    "UsageEvent",
     "__version__",
+    "coerce_message",
+    "default_registry",
+    "default_step_describer",
+    "evals",
+    "format_sse",
+    "load_agent",
+    "load_agents",
+    "register",
+    "register_provider",
+    "resolve_model",
+    "sse_stream",
+    "tool",
 ]

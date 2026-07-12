@@ -20,7 +20,7 @@ from pydantic import BaseModel, ValidationError, create_model
 from ..exceptions import ToolError, ToolNotFoundError
 from .base import ToolDef, ToolResult, ToolSource
 
-__all__ = ["tool", "FunctionTool", "FunctionToolSource"]
+__all__ = ["FunctionTool", "FunctionToolSource", "tool"]
 
 _CONTEXT_PARAM_NAMES = ("ctx", "context")
 
@@ -88,9 +88,7 @@ def _inspect_signature(fn: Callable[..., Any]) -> tuple[Optional[str], type[Base
             )
         if param_name in _CONTEXT_PARAM_NAMES:
             if context_param is not None:
-                raise TypeError(
-                    f"Tool {fn.__name__!r} declares both 'ctx' and 'context'; use one."
-                )
+                raise TypeError(f"Tool {fn.__name__!r} declares both 'ctx' and 'context'; use one.")
             context_param = param_name
             continue
         annotation = hints.get(param_name, Any)
@@ -167,7 +165,9 @@ class FunctionToolSource(ToolSource):
     async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
         return [ft.definition for ft in self._tools.values()]
 
-    async def execute(self, name: str, arguments: dict[str, Any], context: Any = None) -> ToolResult:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: Any = None
+    ) -> ToolResult:
         ft = self._tools.get(name)
         if ft is None:
             raise ToolNotFoundError(name)

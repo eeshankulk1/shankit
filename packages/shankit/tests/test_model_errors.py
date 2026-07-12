@@ -109,9 +109,7 @@ def test_openai_exceptions_map_to_model_error():
     from shankit.models.openai import _map_error
 
     response, request = _http_error_parts(500)
-    mapped = _map_error(
-        openai.InternalServerError("server error", response=response, body=None)
-    )
+    mapped = _map_error(openai.InternalServerError("server error", response=response, body=None))
     assert isinstance(mapped, ModelError)
     assert (mapped.provider, mapped.status, mapped.retryable) == ("openai", 500, True)
 
@@ -157,6 +155,6 @@ async def test_sse_stream_emits_typed_error(make_agent):
         raise err
 
     lines = [line async for line in sse_stream(broken())]
-    assert 'event: error' in lines[-1]
+    assert "event: error" in lines[-1]
     assert '"code":"model_error"' in lines[-1]
     assert '"retryable":true' in lines[-1]

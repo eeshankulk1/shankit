@@ -23,9 +23,7 @@ class _CountingSource(FunctionToolSource):
 
 
 async def test_composite_lists_and_routes():
-    composite = CompositeToolSource(
-        [FunctionToolSource([alpha]), FunctionToolSource([beta])]
-    )
+    composite = CompositeToolSource([FunctionToolSource([alpha]), FunctionToolSource([beta])])
     names = [t.name for t in await composite.list_tools()]
     assert names == ["alpha", "beta"]
     assert (await composite.execute("beta", {})).content == "b"
@@ -48,9 +46,7 @@ async def test_composite_execute_rebuilds_routes_when_cold():
 
 
 async def test_composite_collision():
-    composite = CompositeToolSource(
-        [FunctionToolSource([alpha]), FunctionToolSource([alpha])]
-    )
+    composite = CompositeToolSource([FunctionToolSource([alpha]), FunctionToolSource([alpha])])
     with pytest.raises(ValueError, match="collision"):
         await composite.list_tools()
 

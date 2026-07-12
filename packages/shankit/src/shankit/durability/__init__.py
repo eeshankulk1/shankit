@@ -4,7 +4,7 @@ from .stores import InMemoryCheckpointer, SqliteCheckpointer
 __all__ = [
     "Checkpoint",
     "Checkpointer",
-    "InterruptInfo",
     "InMemoryCheckpointer",
+    "InterruptInfo",
     "SqliteCheckpointer",
 ]

@@ -27,6 +27,7 @@ per-run context (and load-time ``variables``).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -124,9 +125,10 @@ def load_agent(
     if extract_placeholders(body):
         load_time_variables = dict(variables) if variables else {}
 
-        def instructions(context: Any, _body: str = body) -> str:
+        def render_instructions(context: Any, _body: str = body) -> str:
             return render_prompt(_body, context=context, variables=load_time_variables)
 
+        instructions = render_instructions
     else:
         # No placeholders: static prose (escaped braces resolved now).
         instructions = body.replace("{{", "{").replace("}}", "}")
@@ -176,17 +178,16 @@ def load_agents(
 
 def _split_frontmatter(raw: str, path: Path) -> tuple[dict[str, Any], str]:
     if not raw.lstrip().startswith("---"):
-        raise AgentFileError(
-            f"{path}: agent files start with a `---` YAML frontmatter block."
-        )
+        raise AgentFileError(f"{path}: agent files start with a `---` YAML frontmatter block.")
     stripped = raw.lstrip()
-    parts = stripped.split("\n---", 1)
-    if len(parts) != 2:
+    # The terminator is a line consisting solely of `---` (trailing spaces
+    # allowed), so a value *containing* `---` (a markdown rule in a block
+    # scalar, a `----` divider) can't end the block early.
+    terminator = re.search(r"\n---[ \t]*(?:\n|$)", stripped)
+    if terminator is None:
         raise AgentFileError(f"{path}: unterminated frontmatter block.")
-    yaml_text = parts[0].removeprefix("---")
-    body = parts[1]
-    if body.startswith("-"):  # guard against '----' style separators
-        raise AgentFileError(f"{path}: malformed frontmatter separator.")
+    yaml_text = stripped[: terminator.start()].removeprefix("---")
+    body = stripped[terminator.end() :]
     try:
         data = yaml.safe_load(yaml_text) or {}
     except yaml.YAMLError as exc:
