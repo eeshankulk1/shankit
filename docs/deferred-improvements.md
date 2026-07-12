@@ -89,10 +89,14 @@ message is what consumers show users. TS regen required.
 
 > **Status: partially implemented.**
 > - `tools_cache_ttl` — done (opt-in, default `None`).
-> - Schema-cache-aware execute — **moot**: verified against composio 0.17.1
->   that `Tools.execute()` now checks its per-slug schema cache first and
->   only fetches on a miss, so only the *first* execution of each slug pays
->   the extra round-trip. Not worth coupling to SDK private internals.
+> - Schema-cache-aware execute — **NOT moot; the earlier claim below was
+>   wrong.** throu re-verified during its adoption pass (agentkit PR #31)
+>   against the installed `composio 1.0.0-rc2`: `execute()` →
+>   `_execute_tool()` → `get_raw_composio_tool_by_slug()` still hits the
+>   network on every call, so throu keeps its instance-scoped monkey-patch.
+>   The framework decision stands unchanged — not worth coupling to SDK
+>   private internals — but do not delete a consumer's patch on the strength
+>   of the 0.17.1 observation; re-verify against the SDK actually installed.
 > - `ConnectionStatus.account_id` — done, named vendor-neutrally (the base
 >   lifecycle contract shouldn't speak Composio's vocabulary). throu should
 >   re-check whether this covers its `extra="allow"` smuggling.

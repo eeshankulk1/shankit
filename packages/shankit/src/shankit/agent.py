@@ -169,6 +169,16 @@ class Agent:
         describe_step: Step-describer for user-facing narration; return
             ``None`` from it to hide a call. Defaults to a generic describer.
         model_client: Escape hatch — bring your own :class:`ModelClient`.
+        max_tool_result_chars: Loop safety bound, like ``max_iterations``:
+            cap any single tool result's ``content`` at this many characters
+            before it enters the conversation. Over-cap content is cut, a
+            truncation marker is appended (so the returned content slightly
+            exceeds the cap), and the result is marked ``truncated`` —
+            feeding the run's sticky ``truncated`` flag. ``None`` (default)
+            disables the cap. Without one, a single oversized result — a
+            big file over MCP, a bulky vendor payload, a verbose sub-agent —
+            can exceed the model's context window and kill the run with a
+            non-retryable provider error.
     """
 
     def __init__(
@@ -185,8 +195,11 @@ class Agent:
         max_iterations: int = 20,
         output_retries: int = 2,
         max_tokens: int = 4096,
+        max_tool_result_chars: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> None:
+        if max_tool_result_chars is not None and max_tool_result_chars <= 0:
+            raise ValueError("max_tool_result_chars must be positive (or None to disable)")
         self.name = name
         self.model = model
         self.instructions = instructions
@@ -197,6 +210,7 @@ class Agent:
         self.max_iterations = max_iterations
         self.output_retries = output_retries
         self.max_tokens = max_tokens
+        self.max_tool_result_chars = max_tool_result_chars
         self.temperature = temperature
         self.tool_source: Optional[ToolSource] = _normalize_tools(tools)
 
@@ -599,15 +613,41 @@ class Agent:
             with _tracing.span("shankit.tool.execute", tool=tool_use.name, agent=self.name):
                 raw = await self.tool_source.execute(tool_use.name, tool_use.input, context)
         except ToolError as exc:
-            return ToolResult(content=str(exc), is_error=True)
+            return self._cap_result(tool_use.name, ToolResult(content=str(exc), is_error=True))
         except Exception:
             logger.exception("Tool %r failed", tool_use.name)
             return ToolResult(
                 content=f"The tool {tool_use.name!r} failed unexpectedly.", is_error=True
             )
         if isinstance(raw, str):  # leniency for duck-typed sources
-            return ToolResult(content=raw)
-        return raw
+            raw = ToolResult(content=raw)
+        return self._cap_result(tool_use.name, raw)
+
+    def _cap_result(self, tool_name: str, result: ToolResult) -> ToolResult:
+        """Apply ``max_tool_result_chars`` (loop safety bound, like
+        ``max_iterations``): one oversized result must not be able to exceed
+        the model's context window and kill the run. Applied at this choke
+        point so every source — local functions, MCP, connectors, sub-agents,
+        and ``ToolError`` text — is covered uniformly. The capped content is
+        what the model, the trajectory, and evals all see."""
+        cap = self.max_tool_result_chars
+        if cap is None or len(result.content) <= cap:
+            return result
+        logger.warning(
+            "Agent %r: tool %r returned %d chars; capped at max_tool_result_chars=%d.",
+            self.name,
+            tool_name,
+            len(result.content),
+            cap,
+        )
+        # Copy, don't mutate: the source may retain its ToolResult object.
+        return result.model_copy(
+            update={
+                "content": result.content[:cap]
+                + f"… [truncated: tool result exceeded {cap} characters]",
+                "truncated": True,
+            }
+        )
 
     # ------------------------------------------------------------- as_tool
 
