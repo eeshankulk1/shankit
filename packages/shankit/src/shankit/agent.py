@@ -34,6 +34,8 @@ from . import _tracing
 from ._serialize import dump_str
 from .events import (
     AgentEvent,
+    Artifact,
+    ArtifactEvent,
     DoneEvent,
     Source,
     SourceEvent,
@@ -106,10 +108,12 @@ class RunResult(Generic[OutputT]):
     ``output_type=str`` — the *final* pass's text. ``text`` is the
     transcript: every assistant text pass of the run joined with blank
     lines, including interim acknowledgments before tool calls. Score and
-    act on ``output``; persist and display ``text``. ``truncated`` is
-    sticky: true if *any* model pass stopped at the token limit (including
-    a sub-agent's — see ``ToolResult.truncated``), since a truncated
-    intermediate pass can corrupt a run as much as a truncated answer.
+    act on ``output``; persist and display ``text``. ``artifacts`` are the
+    typed structured payloads tools surfaced during the run, in emission
+    order (see ``ToolResult.artifacts``). ``truncated`` is sticky: true if
+    *any* model pass stopped at the token limit (including a sub-agent's —
+    see ``ToolResult.truncated``), since a truncated intermediate pass can
+    corrupt a run as much as a truncated answer.
     """
 
     output: OutputT
@@ -117,6 +121,7 @@ class RunResult(Generic[OutputT]):
     usage: Usage
     trajectory: list[ToolCallRecord] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
+    artifacts: list[Artifact] = field(default_factory=list)
     truncated: bool = False
 
 
@@ -272,6 +277,7 @@ class Agent:
             )
         trajectory: list[ToolCallRecord] = []
         sources: list[Source] = []
+        artifacts: list[Artifact] = []
         with _tracing.span("shankit.agent.run", agent=self.name, model=self.model):
             async for event in self._loop(
                 prompt,
@@ -280,6 +286,7 @@ class Agent:
                 streaming=False,
                 trajectory=trajectory,
                 sources=sources,
+                artifacts=artifacts,
                 history=history,
             ):
                 if on_event is not None:
@@ -291,6 +298,7 @@ class Agent:
                         usage=event.usage,
                         trajectory=trajectory,
                         sources=sources,
+                        artifacts=artifacts,
                         truncated=event.truncated,
                     )
         raise ShankitError("Agent loop ended without a result.")  # pragma: no cover
@@ -314,6 +322,7 @@ class Agent:
         """
         trajectory: list[ToolCallRecord] = []
         sources: list[Source] = []
+        artifacts: list[Artifact] = []
         with _tracing.span("shankit.agent.stream", agent=self.name, model=self.model):
             try:
                 async for event in self._loop(
@@ -323,6 +332,7 @@ class Agent:
                     streaming=True,
                     trajectory=trajectory,
                     sources=sources,
+                    artifacts=artifacts,
                     history=history,
                 ):
                     yield event
@@ -343,6 +353,7 @@ class Agent:
         streaming: bool,
         trajectory: list[ToolCallRecord],
         sources: list[Source],
+        artifacts: list[Artifact],
         history: Optional[Sequence[Any]] = None,
     ) -> AsyncIterator[AgentEvent]:
         client, model_id = resolve_model(self.model, self.model_client)
@@ -546,6 +557,9 @@ class Agent:
                 for source in result.sources:
                     sources.append(source)
                     yield SourceEvent(source=source)
+                for artifact in result.artifacts:
+                    artifacts.append(artifact)
+                    yield ArtifactEvent(artifact=artifact)
                 if result.usage is not None:
                     # Usage a tool reports (e.g. a sub-agent's spend) is part
                     # of the run total, so it must also be part of the stream:
@@ -661,8 +675,9 @@ class Agent:
         """Adapt this agent into a tool source, so handing sub-agents to a
         parent agent *is* orchestration (design §3.4).
 
-        The sub-agent's failures are sanitized, its sources propagate, and
-        its token usage is folded into the parent run's accounting.
+        The sub-agent's failures are sanitized, its sources and artifacts
+        propagate, and its token usage is folded into the parent run's
+        accounting.
 
         Args:
             output: ``"text"`` (default) returns the sub-agent's final
@@ -722,6 +737,7 @@ class _AgentToolSource(ToolSource):
         return ToolResult(
             content=content,
             sources=result.sources,
+            artifacts=result.artifacts,
             usage=result.usage,
             truncated=result.truncated,
         )

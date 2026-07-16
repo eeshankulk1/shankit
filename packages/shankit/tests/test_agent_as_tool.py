@@ -2,7 +2,7 @@ import pytest
 from conftest import FakeModel, final_result_response, text_response, tool_call_response
 from pydantic import BaseModel
 from shankit import Agent, ShankitError, ToolResult, tool
-from shankit.events import Source
+from shankit.events import Artifact, Source
 
 
 class Findings(BaseModel):
@@ -42,6 +42,26 @@ async def test_parent_delegates_to_sub_agent(make_agent):
     assert result.usage.requests == 4
     # sub-agent sources propagate to the parent run
     assert [s.title for s in result.sources] == ["wiki"]
+
+
+async def test_sub_agent_artifacts_propagate(make_agent):
+    """Artifacts ride the tool seam to the parent run the same way sources
+    do — the parent's RunResult carries them intact."""
+
+    @tool
+    def fetch() -> ToolResult:
+        return ToolResult(
+            content="raw", artifacts=[Artifact(type="email_card", data={"subject": "Hello"})]
+        )
+
+    sub = make_sub([tool_call_response("fetch", {}), text_response("sub-answer")], tools=[fetch])
+    parent, _ = make_agent(
+        [tool_call_response("researcher", {"task": "t"}), text_response("done")],
+        tools=[sub.as_tool()],
+    )
+    result = await parent.run("go", output_type=str)
+    assert [a.type for a in result.artifacts] == ["email_card"]
+    assert result.artifacts[0].data == {"subject": "Hello"}
 
 
 async def test_sub_agent_interim_text_stays_off_tool_result(make_agent):

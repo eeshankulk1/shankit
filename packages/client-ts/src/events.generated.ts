@@ -3,6 +3,21 @@
 // Regenerate with: python scripts/generate_ts_events.py
 
 /**
+ * A typed structured payload surfaced by a tool result.
+ *
+ * Where a :class:`Source` is semantically a citation, an artifact is
+ * content: a piece of typed data the application wants to carry from a
+ * tool execution out to the caller intact (e.g. an email card, a
+ * calendar event). ``type`` names the application-defined kind;
+ * ``data`` is opaque to the framework — it is never inspected, only
+ * carried (same stance as the per-run context, design §3.3).
+ */
+export interface Artifact {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+/**
  * A citation/source surfaced by a tool result.
  *
  * Extra fields are allowed so tools can attach vendor-specific metadata
@@ -62,6 +77,14 @@ export interface SourceEvent {
 }
 
 /**
+ * A structured payload surfaced by a tool during the run.
+ */
+export interface ArtifactEvent {
+  type: "artifact";
+  artifact: Artifact;
+}
+
+/**
  * One usage increment within the run: a model call, or usage a tool
  * reported (e.g. a sub-agent's spend surfacing through the tool seam).
  *
@@ -113,6 +136,6 @@ export interface DoneEvent {
 
 /** Every event a shankit agent stream can emit. A stream ends with
  * exactly one terminal event: `done` or `error`. */
-export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | UsageEvent | ErrorEvent | DoneEvent;
+export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | ArtifactEvent | UsageEvent | ErrorEvent | DoneEvent;
 
 export type AgentEventType = AgentEvent["type"];

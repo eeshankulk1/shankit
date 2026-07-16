@@ -31,6 +31,8 @@ from .durability import (
 )
 from .events import (
     AgentEvent,
+    Artifact,
+    ArtifactEvent,
     DoneEvent,
     ErrorEvent,
     Source,
@@ -72,6 +74,8 @@ __all__ = [
     "Agent",
     "AgentEvent",
     "AgentFileError",
+    "Artifact",
+    "ArtifactEvent",
     "Checkpoint",
     "Checkpointer",
     "CompositeToolSource",

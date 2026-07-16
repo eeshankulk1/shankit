@@ -30,6 +30,17 @@ def sample_request(**overrides):
 # ---------------------------------------------------------------- anthropic
 
 
+def test_anthropic_extra_request_kwargs_merge():
+    from shankit.models.anthropic import AnthropicModel
+
+    model = AnthropicModel(extra_request_kwargs={"thinking": {"type": "disabled"}})
+    kwargs = model._build_kwargs(sample_request())
+    assert kwargs["thinking"] == {"type": "disabled"}
+    # merged last: an extra kwarg wins over a generated one
+    override = AnthropicModel(extra_request_kwargs={"max_tokens": 99})
+    assert override._build_kwargs(sample_request())["max_tokens"] == 99
+
+
 def test_anthropic_kwargs_shape():
     kwargs = anthropic_kwargs(sample_request(temperature=0.2))
     assert kwargs["system"] == "be helpful"
