@@ -18,6 +18,8 @@ from .usage import Usage
 
 __all__ = [
     "AgentEvent",
+    "Artifact",
+    "ArtifactEvent",
     "DoneEvent",
     "ErrorEvent",
     "Source",
@@ -42,6 +44,21 @@ class Source(BaseModel):
     title: str
     url: Optional[str] = None
     snippet: Optional[str] = None
+
+
+class Artifact(BaseModel):
+    """A typed structured payload surfaced by a tool result.
+
+    Where a :class:`Source` is semantically a citation, an artifact is
+    content: a piece of typed data the application wants to carry from a
+    tool execution out to the caller intact (e.g. an email card, a
+    calendar event). ``type`` names the application-defined kind;
+    ``data`` is opaque to the framework — it is never inspected, only
+    carried (same stance as the per-run context, design §3.3).
+    """
+
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class TextDeltaEvent(BaseModel):
@@ -71,6 +88,13 @@ class SourceEvent(BaseModel):
 
     type: Literal["source"] = "source"
     source: Source
+
+
+class ArtifactEvent(BaseModel):
+    """A structured payload surfaced by a tool during the run."""
+
+    type: Literal["artifact"] = "artifact"
+    artifact: Artifact
 
 
 class UsageEvent(BaseModel):
@@ -124,7 +148,15 @@ class DoneEvent(BaseModel):
 
 
 AgentEvent = Annotated[
-    Union[TextDeltaEvent, StepEvent, SourceEvent, UsageEvent, ErrorEvent, DoneEvent],
+    Union[
+        TextDeltaEvent,
+        StepEvent,
+        SourceEvent,
+        ArtifactEvent,
+        UsageEvent,
+        ErrorEvent,
+        DoneEvent,
+    ],
     Field(discriminator="type"),
 ]
 

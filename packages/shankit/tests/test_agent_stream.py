@@ -1,6 +1,7 @@
 from conftest import FakeModel, text_response, tool_call_response
 from shankit import (
     Agent,
+    ArtifactEvent,
     DoneEvent,
     ErrorEvent,
     SourceEvent,
@@ -11,7 +12,7 @@ from shankit import (
     UsageEvent,
     tool,
 )
-from shankit.events import Source
+from shankit.events import Artifact, Source
 from shankit.observe import StepInfo
 
 
@@ -162,6 +163,21 @@ async def test_sources_surface_as_events(make_agent):
     events = await collect(agent.stream("go"))
     sources = [e for e in events if isinstance(e, SourceEvent)]
     assert sources[0].source.url == "https://x"
+
+
+async def test_artifacts_surface_as_events(make_agent):
+    @tool
+    def fetch() -> ToolResult:
+        return ToolResult(
+            content="text",
+            artifacts=[Artifact(type="email_card", data={"subject": "Hi", "sender": "a@b.c"})],
+        )
+
+    agent, _ = make_agent([tool_call_response("fetch", {}), text_response("done")], tools=[fetch])
+    events = await collect(agent.stream("go"))
+    artifacts = [e for e in events if isinstance(e, ArtifactEvent)]
+    assert artifacts[0].artifact.type == "email_card"
+    assert artifacts[0].artifact.data == {"subject": "Hi", "sender": "a@b.c"}
 
 
 async def test_framework_error_becomes_error_event(make_agent):

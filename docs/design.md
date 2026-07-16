@@ -232,8 +232,15 @@ First-class, and *user-facing* — not just dev tracing.
   `describe_step` becomes an instance of this contract — same behavior, now
   pluggable.
 - The streaming run mode emits a typed **event stream** (text deltas, steps,
-  sources, usage, done). This is the single source of truth the TS consumer SDK
-  renders and that throu's SSE maps onto directly.
+  sources, artifacts, usage, done). This is the single source of truth the TS
+  consumer SDK renders and that throu's SSE maps onto directly.
+- **Artifacts** are the structured-content half of that stream: a tool result
+  may carry `Artifact {type, data}` payloads that the loop emits as
+  `ArtifactEvent`s, accumulates on `RunResult.artifacts`, and passes through
+  the `as_tool` seam intact. The framework owns the *carrying* (mechanism);
+  what an artifact means — an email card, a calendar event — and what the app
+  does with it (persist, render) is app policy, same stance as the per-run
+  context (§3.3). `data` is never inspected by the framework.
 - OpenTelemetry tracing is available and orthogonal to the user-facing steps.
 
 ---

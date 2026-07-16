@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from ..events import Source
+from ..events import Artifact, Source
 from ..usage import Usage
 
 __all__ = ["ToolDef", "ToolResult", "ToolSource", "is_tool_source"]
@@ -38,15 +38,18 @@ class ToolResult(BaseModel):
     """What executing a tool returns to the loop.
 
     ``content`` is what the model sees. ``sources`` surface citations to the
-    event stream. ``usage`` lets a tool that itself spends tokens (e.g. a
-    sub-agent) report them for accounting in the parent run. ``truncated``
-    marks ``content`` as cut off (e.g. a sub-agent run that hit its token
-    limit); the parent run's sticky ``truncated`` flag picks it up.
+    event stream; ``artifacts`` surface typed structured payloads the same
+    way (the model never sees either — they are for the caller). ``usage``
+    lets a tool that itself spends tokens (e.g. a sub-agent) report them for
+    accounting in the parent run. ``truncated`` marks ``content`` as cut off
+    (e.g. a sub-agent run that hit its token limit); the parent run's sticky
+    ``truncated`` flag picks it up.
     """
 
     content: str
     is_error: bool = False
     sources: list[Source] = Field(default_factory=list)
+    artifacts: list[Artifact] = Field(default_factory=list)
     usage: Optional[Usage] = None
     truncated: bool = False
 

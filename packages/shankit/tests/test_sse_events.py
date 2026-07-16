@@ -2,7 +2,7 @@ import json
 
 import pytest
 from shankit import DoneEvent, ShankitError, StepEvent, TextDeltaEvent, format_sse, sse_stream
-from shankit.events import agent_event_adapter
+from shankit.events import Artifact, ArtifactEvent, agent_event_adapter
 
 
 def test_format_sse():
@@ -18,6 +18,7 @@ def test_events_roundtrip_via_discriminator():
     for event in [
         TextDeltaEvent(text="x"),
         StepEvent(id="s1", title="Did a thing", status="done"),
+        ArtifactEvent(artifact=Artifact(type="email_card", data={"subject": "s"})),
         DoneEvent(text="fin", output={"k": 1}),
     ]:
         parsed = adapter.validate_json(event.model_dump_json())
