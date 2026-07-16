@@ -37,6 +37,16 @@ class AnthropicModel(ModelClient):
     ``Usage.cache_read_tokens``; cache-written tokens (billed at a premium
     and excluded from ``input_tokens`` by the API) on
     ``Usage.cache_write_tokens``.
+
+    ``extra_request_kwargs`` is an escape hatch merged (last) into every
+    ``messages.create``/``messages.stream`` call — for provider parameters
+    the neutral :class:`ModelRequest` doesn't model. The motivating case:
+    models whose default thinking mode emits ``thinking`` blocks (e.g.
+    Claude Sonnet 5 runs adaptive thinking when the parameter is omitted)
+    need ``{"thinking": {"type": "disabled"}}`` here, because this client's
+    v1 boundary shape drops non-text/tool_use blocks — echoing an assistant
+    turn back *without* its thinking blocks breaks tool-use continuations.
+    Keys collide with the generated ones at the caller's own risk.
     """
 
     def __init__(
@@ -46,11 +56,13 @@ class AnthropicModel(ModelClient):
         base_url: Optional[str] = None,
         client: Any = None,
         cache_system_and_tools: bool = True,
+        extra_request_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._client = client
         self._cache_system_and_tools = cache_system_and_tools
+        self._extra_request_kwargs = extra_request_kwargs
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -64,17 +76,21 @@ class AnthropicModel(ModelClient):
             self._client = anthropic.AsyncAnthropic(api_key=self._api_key, base_url=self._base_url)
         return self._client
 
+    def _build_kwargs(self, request: ModelRequest) -> dict[str, Any]:
+        kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+        if self._extra_request_kwargs:
+            kwargs.update(self._extra_request_kwargs)
+        return kwargs
+
     async def complete(self, request: ModelRequest) -> ModelResponse:
         client = self._get_client()
         with wrap_sdk_errors(_map_error):
-            message = await client.messages.create(
-                **build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
-            )
+            message = await client.messages.create(**self._build_kwargs(request))
         return parse_message(message)
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         client = self._get_client()
-        kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+        kwargs = self._build_kwargs(request)
         with wrap_sdk_errors(_map_error):
             async with client.messages.stream(**kwargs) as stream:
                 async for text in stream.text_stream:
