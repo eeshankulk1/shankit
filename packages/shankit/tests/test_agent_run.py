@@ -89,6 +89,35 @@ async def test_nudge_when_model_stops_without_output(make_agent):
     assert fake.requests[1].tool_choice.name == OUTPUT_TOOL_NAME
 
 
+async def test_output_forced_from_first_pass_when_no_tools(make_agent):
+    # A structured agent with no real tools has nothing to explore: pass 1
+    # must already force the output tool. (Left on "auto", small models burn
+    # pass 1 on prose and the forced retry intermittently degrades fields.)
+    agent, fake = make_agent(
+        [final_result_response({"value": 1, "note": "direct"})], output_type=Answer
+    )
+    result = await agent.run("go")
+    assert result.output.value == 1
+    assert isinstance(fake.requests[0].tool_choice, ForcedTool)
+    assert fake.requests[0].tool_choice.name == OUTPUT_TOOL_NAME
+    # one request total — no wasted text pass before the forced call
+    assert len(fake.requests) == 1
+
+
+async def test_output_not_forced_on_first_pass_with_tools(make_agent):
+    # Agents with real tools must keep "auto" — they search before answering.
+    agent, fake = make_agent(
+        [
+            tool_call_response("add", {"a": 1, "b": 2}),
+            final_result_response({"value": 3, "note": "sum"}),
+        ],
+        tools=[add],
+        output_type=Answer,
+    )
+    await agent.run("go")
+    assert fake.requests[0].tool_choice == "auto"
+
+
 async def test_str_output_type(make_agent):
     agent, _ = make_agent([text_response("plain answer")])
     result = await agent.run("go", output_type=str)

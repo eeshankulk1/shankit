@@ -392,6 +392,15 @@ class Agent:
         truncated = False
         output_attempts = 0
         force_output = False
+        # A structured agent with NO real tools has nothing to explore — its
+        # only job is the final_result call, so force it on every pass. Left
+        # on "auto", small models often burn pass 1 answering in plain text;
+        # the forced retry then re-derives the result with the answer already
+        # spent as prose, which intermittently yields empty/degraded fields
+        # (observed: an entity-linking extractor deterministically returning
+        # [] for certain inputs). Forcing also saves that wasted first call.
+        # Agents WITH tools keep "auto" — they must search before answering.
+        always_force_output = output_spec is not None and not known_tools
         step_counter = 0
 
         def done_event(output: Any) -> DoneEvent:
@@ -409,7 +418,11 @@ class Agent:
                 system=system or None,
                 messages=messages,
                 tools=tool_defs,
-                tool_choice=ForcedTool(name=OUTPUT_TOOL_NAME) if force_output else "auto",
+                tool_choice=(
+                    ForcedTool(name=OUTPUT_TOOL_NAME)
+                    if (force_output or always_force_output)
+                    else "auto"
+                ),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
             )
