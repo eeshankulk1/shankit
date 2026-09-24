@@ -55,6 +55,46 @@ async def test_interim_text_joins_into_done_text(make_agent):
     assert streamed == "Let me check that." + "The answer is 5."
 
 
+async def test_end_run_stops_the_loop_after_the_batch(make_agent):
+    """A tool can end the run (a question put to a human): the batch's
+    results all land, and the model gets no further pass."""
+
+    @tool
+    def lookup() -> ToolResult:
+        return ToolResult(content="found", artifacts=[Artifact(type="card", data={"n": 1})])
+
+    @tool
+    def ask() -> ToolResult:
+        return ToolResult(content="asked", end_run=True)
+
+    agent, fake = make_agent(
+        [
+            tool_call_response("lookup", {}, call_id="a", text="One moment."),
+            tool_call_response("ask", {}, call_id="b"),
+        ],
+        tools=[lookup, ask],
+    )
+    # The second response is the only one that calls `ask`; the first pass
+    # runs `lookup` and the loop goes back to the model as usual.
+    events = await collect(agent.stream("go"))
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.text == "One moment."
+    assert len(fake.requests) == 2  # no pass after `ask`
+    assert any(isinstance(e, ArtifactEvent) for e in events)
+
+
+async def test_end_run_in_a_structured_run_leaves_no_output(make_agent):
+    @tool
+    def ask() -> ToolResult:
+        return ToolResult(content="asked", end_run=True)
+
+    agent, fake = make_agent([tool_call_response("ask", {})], tools=[ask])
+    result = await agent.run("go", output_type=str)
+    assert result.output == ""
+    assert len(fake.requests) == 1
+
+
 async def test_usage_events_sum_to_done_usage(make_agent):
     """Sub-agent usage arrives through the tool seam; it must be part of the
     stream too, so summing UsageEvents always matches DoneEvent.usage."""

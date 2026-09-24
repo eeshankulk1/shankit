@@ -43,7 +43,10 @@ class ToolResult(BaseModel):
     lets a tool that itself spends tokens (e.g. a sub-agent) report them for
     accounting in the parent run. ``truncated`` marks ``content`` as cut off
     (e.g. a sub-agent run that hit its token limit); the parent run's sticky
-    ``truncated`` flag picks it up.
+    ``truncated`` flag picks it up. ``end_run`` ends the run once this tool
+    batch is processed, instead of going back to the model: for a tool whose
+    result the model has nothing to add to, like a question put to a human
+    whose answer arrives later as a new message.
     """
 
     content: str
@@ -52,6 +55,7 @@ class ToolResult(BaseModel):
     artifacts: list[Artifact] = Field(default_factory=list)
     usage: Optional[Usage] = None
     truncated: bool = False
+    end_run: bool = False
 
 
 class ToolSource(abc.ABC):

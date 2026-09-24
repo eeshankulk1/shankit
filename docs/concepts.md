@@ -118,6 +118,12 @@ A tool may return a plain `str` (the common case) or a `ToolResult` carrying
 `content`, `sources`, `usage`, and a `truncated` flag. The first parameter is the
 per-run context by convention; tools that don't need it can omit it.
 
+`ToolResult(end_run=True)` ends the run once that tool batch is processed,
+instead of going back to the model: for a tool the model has nothing to add
+to, like a question put to a human whose answer arrives later as a new
+message. The run finishes with `done` as usual (a structured run gets no
+validated `output`).
+
 ## The per-run context
 
 A typed, **opaque** container threaded to tools and to dynamic instructions. It
