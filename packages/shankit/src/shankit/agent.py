@@ -602,6 +602,12 @@ class Agent:
             if finished is not None:
                 yield done_event(finished[0])
                 return
+            if any(result.end_run for result in results):
+                # A tool ended the run (ToolResult.end_run): every result in
+                # the batch has landed, and the model gets no further pass.
+                # A structured run ends without a validated output.
+                yield done_event(turn_text if output_type is str else None)
+                return
 
         raise MaxIterationsError(
             f"Agent {self.name!r} hit max_iterations={self.max_iterations} without finishing."
