@@ -108,8 +108,9 @@ These are ordinary scorers — mix them freely with output scorers in one
 
 Nothing in the harness talks to a provider unless a scorer does
 (`llm_judge` runs a real model). For deterministic CI evals, hand the agent
-a scripted `ModelClient` (see `packages/shankit/tests/conftest.py` for the
-`FakeModel` pattern) and assert on trajectories and outputs.
+a `shankit.testing.ScriptedModel` (see
+[Testing with a scripted model](concepts.md#testing-with-a-scripted-model))
+and assert on trajectories and outputs.
 
 ## See also
 

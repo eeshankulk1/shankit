@@ -574,3 +574,17 @@ where the original text had a gap (flagged ⚠):
       `as_tool()` sub-agents forward their steps this way, ids prefixed with
       the parent step id and `StepEvent.agent` set. `StepEvent`/`StepInfo`
       gained `agent` (additive on the wire).
+16. **`ScriptedModel` is the public test double** (`shankit.testing`). The
+    suite's own `FakeModel` pattern, promoted once the first consumer needed
+    the same thing for its tests. A turn composes text, tool calls,
+    reasoning, structured output, usage, raw blocks, or an error; every
+    request is recorded as a snapshot, with an optional per-turn `expect`.
+    - **⚠ Script failures are a `BaseException`** (`ScriptFailure`, as
+      pytest's outcome exceptions are). The model-error contract turns any
+      client `Exception` into a `ModelError`, which `stream()` ends as a calm
+      `error` event and sub-agent tools sanitize, so an ordinary assertion
+      error from a broken script would pass as a provider failure.
+    - **No native/server tool blocks yet.** The boundary shape has none (the
+      clients drop server-tool blocks), so none are modeled. `blocks=` passes
+      any `ContentBlock` through verbatim, so block types added later are
+      scriptable without changes.

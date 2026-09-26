@@ -209,7 +209,7 @@ Event types are **generated** from the Python pydantic models, so the two langua
 | **Observability** | pluggable step-describer → user-facing step narration on the event stream; optional OpenTelemetry spans for dev tracing |
 | **Durability** | `Checkpointer` contract backed by _your_ storage; in-memory + SQLite ship in-box; powers HITL approval pauses |
 | **Evals** | datasets, scorers (`exact_match`, `output_contains`, `llm_judge`), and trajectory assertions over `result.trajectory` |
-| **Models** | provider-neutral `ModelClient`; Anthropic + OpenAI at launch, `register_provider()` for more |
+| **Models** | provider-neutral `ModelClient`; Anthropic + OpenAI at launch, `register_provider()` for more; `shankit.testing.ScriptedModel` for deterministic tests |
 | **Connectors** | opt-in [`shankit-connectors`](packages/shankit-connectors): connection lifecycle + official Composio implementation |
 | **TypeScript** | [`@shankit/client`](packages/client-ts): typed SSE consumption, event types generated from the Python source of truth |
 
