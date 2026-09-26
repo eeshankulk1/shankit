@@ -15,8 +15,11 @@ stream (or be run with an explicit ``output_type=``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
+import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import (
@@ -31,6 +34,7 @@ from typing import (
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from . import _tracing
+from ._calls import ToolCallContext, _set_current, current_tool_call
 from ._serialize import dump_str
 from .events import (
     AgentEvent,
@@ -48,12 +52,14 @@ from .exceptions import (
     MaxIterationsError,
     ModelError,
     OutputValidationError,
+    RunTimeoutError,
     ShankitError,
     ToolError,
     ToolNotFoundError,
 )
 from .messages import (
     Message,
+    ReasoningBlock,
     ToolResultBlock,
     ToolUseBlock,
     assistant_text,
@@ -66,6 +72,7 @@ from .models.base import (
     ModelRequest,
     ModelResponseComplete,
     ModelTextDelta,
+    Reasoning,
 )
 from .models.registry import resolve_model
 from .observe import StepDescriber, StepInfo, default_step_describer
@@ -79,6 +86,7 @@ from .tools.base import (
 )
 from .tools.local import FunctionTool, FunctionToolSource
 from .usage import Usage
+from .workspace.base import Workspace, WorkspaceSpec, resolve_workspace
 
 __all__ = ["OUTPUT_TOOL_NAME", "Agent", "RunResult", "ToolCallRecord"]
 
@@ -89,6 +97,26 @@ OutputT = TypeVar("OutputT")
 OUTPUT_TOOL_NAME = "final_result"
 
 Instructions = Union[str, Callable[[Any], Union[str, Awaitable[str]]]]
+
+ReasoningSpec = Union[bool, str, Reasoning, None]
+
+# Spilled results keep a head and a tail of the output inline.
+_SPILL_HEAD_CHARS = 1500
+_SPILL_TAIL_CHARS = 500
+# Context clearing leaves this much of each cleared result in place, and
+# doesn't bother with results already smaller than this.
+_CLEAR_KEEP_CHARS = 200
+_CLEAR_MIN_CHARS = 1000
+
+
+def _normalize_reasoning(value: ReasoningSpec) -> Optional[Reasoning]:
+    if value is None or isinstance(value, Reasoning):
+        return value
+    if isinstance(value, bool):
+        return Reasoning(enabled=value)
+    if isinstance(value, str):
+        return Reasoning(effort=value)  # type: ignore[arg-type]
+    raise TypeError(f"reasoning must be a bool, an effort string, or Reasoning; got {value!r}")
 
 
 class ToolCallRecord(BaseModel):
@@ -123,6 +151,8 @@ class RunResult(Generic[OutputT]):
     sources: list[Source] = field(default_factory=list)
     artifacts: list[Artifact] = field(default_factory=list)
     truncated: bool = False
+    #: The run's own transcript (see ``DoneEvent.messages``).
+    messages: list[Message] = field(default_factory=list)
 
 
 class _OutputSpec:
@@ -184,6 +214,37 @@ class Agent:
             big file over MCP, a bulky vendor payload, a verbose sub-agent —
             can exceed the model's context window and kill the run with a
             non-retryable provider error.
+        workspace: A :class:`~shankit.Workspace`, or a (sync/async) function
+            of the per-run context returning one (``None`` for none). The
+            agent's own tools reach it through a
+            :class:`~shankit.WorkspaceTools` given the same spec; the loop
+            uses it to spill oversized tool results to files and to keep
+            cleared context recoverable. Resolved once per run.
+        spill_threshold_chars: With a workspace, a tool result longer than
+            this is written in full to ``<workspace.tmp>/tool-output/`` and
+            the model gets its head and tail plus the file path instead —
+            lossless where ``max_tool_result_chars`` is lossy. ``None``
+            disables spilling. (Coding agents use 30-50K; the default is
+            25K characters.)
+        reasoning: Provider-neutral reasoning ("thinking"): ``True`` on at
+            the provider's default effort, an effort string (``"low"`` …
+            ``"max"``), ``False`` explicitly off, a :class:`Reasoning` for
+            full control, or ``None`` (default) to send nothing. Reasoning
+            blocks round-trip within the run automatically.
+        context_clear_threshold_tokens: Loop-level context clearing for
+            long runs. When a model pass's prompt exceeds this many tokens,
+            older tool results are replaced by a short stub (the full text
+            goes to a workspace file first, when there is one) and reasoning
+            blocks are dropped, keeping the newest
+            ``context_keep_recent_results`` results intact. The pass after a
+            clear runs with reasoning off (a tool continuation can't carry
+            reasoning whose history was edited). ``None`` (default)
+            disables it; a provider's own context editing, when available,
+            is the better tool.
+        timeout_s: Wall-clock bound on the run, checked before each model
+            pass; exceeding it raises :class:`RunTimeoutError` (``timeout``
+            on the event stream). Complements ``max_iterations``: long runs
+            need a time bound, not just a step bound.
     """
 
     def __init__(
@@ -202,9 +263,17 @@ class Agent:
         max_tokens: int = 4096,
         max_tool_result_chars: Optional[int] = None,
         temperature: Optional[float] = None,
+        workspace: Optional[WorkspaceSpec] = None,
+        spill_threshold_chars: Optional[int] = 25_000,
+        reasoning: ReasoningSpec = None,
+        context_clear_threshold_tokens: Optional[int] = None,
+        context_keep_recent_results: int = 3,
+        timeout_s: Optional[float] = None,
     ) -> None:
         if max_tool_result_chars is not None and max_tool_result_chars <= 0:
             raise ValueError("max_tool_result_chars must be positive (or None to disable)")
+        if spill_threshold_chars is not None and spill_threshold_chars <= 0:
+            raise ValueError("spill_threshold_chars must be positive (or None to disable)")
         self.name = name
         self.model = model
         self.instructions = instructions
@@ -217,6 +286,12 @@ class Agent:
         self.max_tokens = max_tokens
         self.max_tool_result_chars = max_tool_result_chars
         self.temperature = temperature
+        self.workspace = workspace
+        self.spill_threshold_chars = spill_threshold_chars
+        self.reasoning = _normalize_reasoning(reasoning)
+        self.context_clear_threshold_tokens = context_clear_threshold_tokens
+        self.context_keep_recent_results = max(0, context_keep_recent_results)
+        self.timeout_s = timeout_s
         self.tool_source: Optional[ToolSource] = _normalize_tools(tools)
 
     def __repr__(self) -> str:
@@ -300,6 +375,7 @@ class Agent:
                         sources=sources,
                         artifacts=artifacts,
                         truncated=event.truncated,
+                        messages=event.messages,
                     )
         raise ShankitError("Agent loop ended without a result.")  # pragma: no cover
 
@@ -357,19 +433,22 @@ class Agent:
         history: Optional[Sequence[Any]] = None,
     ) -> AsyncIterator[AgentEvent]:
         client, model_id = resolve_model(self.model, self.model_client)
+        deadline = time.monotonic() + self.timeout_s if self.timeout_s is not None else None
 
-        # Instructions and the tool catalog are independent; resolving them
-        # concurrently matters when both hit the network (dynamic
-        # instructions + a connector-backed tool source) on a cold cache.
-        if self.tool_source is not None:
-            system, listed = await asyncio.gather(
-                self._resolve_instructions(context),
-                self.tool_source.list_tools(context),
-            )
-            tool_defs: list[ToolDef] = list(listed)
-        else:
-            system = await self._resolve_instructions(context)
-            tool_defs = []
+        # Instructions, the tool catalog, and the workspace are independent;
+        # resolving them concurrently matters when they hit the network
+        # (dynamic instructions + a connector-backed tool source) on a cold
+        # cache.
+        async def list_tools() -> list[ToolDef]:
+            if self.tool_source is None:
+                return []
+            return list(await self.tool_source.list_tools(context))
+
+        system, tool_defs, workspace = await asyncio.gather(
+            self._resolve_instructions(context),
+            list_tools(),
+            resolve_workspace(self.workspace, context),
+        )
         known_tools = {t.name for t in tool_defs}
 
         output_spec: Optional[_OutputSpec] = None
@@ -383,10 +462,9 @@ class Agent:
             output_spec = _OutputSpec(output_type)
             tool_defs = [*tool_defs, output_spec.tool_def]
 
-        messages: list[Message] = [
-            *(coerce_message(m) for m in history or ()),
-            user_message(prompt),
-        ]
+        messages: list[Message] = [coerce_message(m) for m in history or ()]
+        run_start = len(messages)
+        messages.append(user_message(prompt))
         total_usage = Usage()
         texts: list[str] = []
         truncated = False
@@ -402,6 +480,15 @@ class Agent:
         # Agents WITH tools keep "auto" — they must search before answering.
         always_force_output = output_spec is not None and not known_tools
         step_counter = 0
+        # Shared by every tool call of this run (see ToolCallContext).
+        run_state: dict[Any, Any] = {}
+        # Context clearing bookkeeping: results already stubbed, where
+        # spilled results live, and whether the next pass must run without
+        # reasoning (its tool continuation's history was just edited).
+        cleared: set[str] = set()
+        spilled: dict[str, str] = {}
+        reasoning_off_once = False
+        last_prompt_tokens = 0
 
         def done_event(output: Any) -> DoneEvent:
             # text is the transcript (every pass); output is the answer.
@@ -410,9 +497,26 @@ class Agent:
                 output=output,
                 usage=total_usage,
                 truncated=truncated,
+                messages=list(messages[run_start:]),
             )
 
         for _ in range(self.max_iterations):
+            if deadline is not None and time.monotonic() > deadline:
+                raise RunTimeoutError(
+                    f"Agent {self.name!r} ran past its {self.timeout_s:g}s time limit."
+                )
+            if (
+                self.context_clear_threshold_tokens is not None
+                and last_prompt_tokens > self.context_clear_threshold_tokens
+            ):
+                if await self._clear_context(messages, cleared, spilled, workspace):
+                    reasoning_off_once = True
+                last_prompt_tokens = 0
+
+            reasoning = self.reasoning
+            if reasoning_off_once and reasoning is not None:
+                reasoning = Reasoning(enabled=False)
+            reasoning_off_once = False
             request = ModelRequest(
                 model=model_id,
                 system=system or None,
@@ -425,6 +529,7 @@ class Agent:
                 ),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
+                reasoning=reasoning,
             )
             force_output = False
 
@@ -457,6 +562,11 @@ class Agent:
 
             total_usage.add(response.usage)
             yield UsageEvent(usage=response.usage)
+            last_prompt_tokens = (
+                response.usage.input_tokens
+                + response.usage.cache_read_tokens
+                + response.usage.cache_write_tokens
+            )
 
             if response.stop_reason == "max_tokens":
                 truncated = True
@@ -531,31 +641,65 @@ class Agent:
                 step_id = f"s{step_counter}"
                 info = self._describe(tool_use, context)
                 if info is not None:
-                    yield StepEvent(
-                        id=step_id,
-                        title=info.title,
-                        detail=info.detail,
-                        phase=info.phase,
-                        status="running",
-                    )
+                    yield _step_event(step_id, info, "running")
                 pending.append((tool_use, step_id, info))
 
             # The model emits multiple tool calls in one turn knowing they are
             # independent, so execute them concurrently. Running steps were
             # already emitted in emission order above; results are processed
             # in that same order so the event stream stays deterministic.
+            # While they run, events the tools push through their
+            # ToolCallContext (a sub-agent's steps, a script's progress) are
+            # yielded as they arrive.
             # If the consumer closes the stream (client disconnect) while we
             # are suspended here, cancel the in-flight tool tasks instead of
             # orphaning them to run (and side-effect) in the background.
+            live: asyncio.Queue[AgentEvent] = asyncio.Queue()
             tasks = [
-                asyncio.ensure_future(self._execute_tool(tu, context, known_tools))
-                for tu, _, _ in pending
+                asyncio.ensure_future(
+                    self._execute_tool(
+                        tu,
+                        context,
+                        known_tools,
+                        ToolCallContext(
+                            tool_use_id=tu.id,
+                            tool_name=tu.name,
+                            step_id=sid,
+                            agent_name=self.name,
+                            emit=live.put_nowait,
+                            run_state=run_state,
+                        ),
+                        workspace,
+                        spilled,
+                    )
+                )
+                for tu, sid, _ in pending
             ]
+            gathered = asyncio.gather(*tasks)
             try:
-                results = await asyncio.gather(*tasks)
+                while not gathered.done():
+                    getter = asyncio.ensure_future(live.get())
+                    try:
+                        await asyncio.wait({gathered, getter}, return_when=asyncio.FIRST_COMPLETED)
+                    finally:
+                        if not getter.done():
+                            getter.cancel()
+                            # Await the cancellation rather than dropping
+                            # the task reference: otherwise it may still be
+                            # pending when garbage collected, which logs a
+                            # "Task was destroyed but it is pending!" warning.
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await getter
+                    if getter.done() and not getter.cancelled():
+                        yield getter.result()
+                while not live.empty():
+                    yield live.get_nowait()
+                results = gathered.result()
             except BaseException:
                 for task in tasks:
                     task.cancel()
+                with contextlib.suppress(BaseException):
+                    await gathered
                 raise
 
             for (tool_use, step_id, info), result in zip(pending, results, strict=True):
@@ -584,13 +728,7 @@ class Agent:
                     # deliverable just like a truncated own pass would.
                     truncated = True
                 if info is not None:
-                    yield StepEvent(
-                        id=step_id,
-                        title=info.title,
-                        detail=info.detail,
-                        phase=info.phase,
-                        status="error" if result.is_error else "done",
-                    )
+                    yield _step_event(step_id, info, "error" if result.is_error else "done")
                 blocks_by_id[tool_use.id] = ToolResultBlock(
                     tool_use_id=tool_use.id,
                     content=result.content,
@@ -634,7 +772,13 @@ class Agent:
             return default_step_describer(tool_use.name, tool_use.input, context)
 
     async def _execute_tool(
-        self, tool_use: ToolUseBlock, context: Any, known_tools: set[str]
+        self,
+        tool_use: ToolUseBlock,
+        context: Any,
+        known_tools: set[str],
+        call: Optional[ToolCallContext] = None,
+        workspace: Optional[Workspace] = None,
+        spilled: Optional[dict[str, str]] = None,
     ) -> ToolResult:
         """The uniform error contract (design §4): every failure comes back as
         a consistent ``is_error`` result the loop and the model can handle."""
@@ -642,6 +786,9 @@ class Agent:
             return ToolResult(
                 content=f"No tool named {tool_use.name!r} is available.", is_error=True
             )
+        # Runs inside this call's own task, so the context var is scoped to
+        # it — concurrent calls each see their own ToolCallContext.
+        _set_current(call)
         try:
             with _tracing.span("shankit.tool.execute", tool=tool_use.name, agent=self.name):
                 raw = await self.tool_source.execute(tool_use.name, tool_use.input, context)
@@ -654,7 +801,98 @@ class Agent:
             )
         if isinstance(raw, str):  # leniency for duck-typed sources
             raw = ToolResult(content=raw)
+        raw = await self._spill(tool_use, raw, workspace, spilled)
         return self._cap_result(tool_use.name, raw)
+
+    async def _spill(
+        self,
+        tool_use: ToolUseBlock,
+        result: ToolResult,
+        workspace: Optional[Workspace],
+        spilled: Optional[dict[str, str]],
+    ) -> ToolResult:
+        """Write an oversized result to a workspace file and hand the model
+        its head, tail, and path instead (``spill_threshold_chars``). Falls
+        through unchanged — to the lossy ``max_tool_result_chars`` cap —
+        when there's no workspace or the write fails."""
+        threshold = self.spill_threshold_chars
+        if workspace is None or threshold is None or len(result.content) <= threshold:
+            return result
+        path = await _save_output(workspace, tool_use.name, result.content)
+        if path is None:
+            return result
+        if spilled is not None:
+            spilled[tool_use.id] = path
+        content = result.content
+        preview = (
+            content[:_SPILL_HEAD_CHARS]
+            + f"\n\n… [{len(content) - _SPILL_HEAD_CHARS - _SPILL_TAIL_CHARS} characters omitted] …\n\n"
+            + content[-_SPILL_TAIL_CHARS:]
+            + f"\n\n[This output was {len(content)} characters, so it was saved to {path}. "
+            "Search or slice that file (rg, jq, head, python3, or Read with offset/limit) "
+            "instead of reading it all.]"
+        )
+        logger.info(
+            "Agent %r: tool %r returned %d chars; spilled to %s.",
+            self.name,
+            tool_use.name,
+            len(content),
+            path,
+        )
+        return result.model_copy(update={"content": preview})
+
+    async def _clear_context(
+        self,
+        messages: list[Message],
+        cleared: set[str],
+        spilled: dict[str, str],
+        workspace: Optional[Workspace],
+    ) -> bool:
+        """Stub out all but the newest tool results (``context_clear_*``).
+
+        Rewrites ``messages`` in place with new Message objects (never
+        mutates the originals, which may be the caller's history). Returns
+        whether anything was cleared."""
+        positions = [
+            (mi, bi)
+            for mi, message in enumerate(messages)
+            for bi, block in enumerate(message.content)
+            if isinstance(block, ToolResultBlock)
+        ]
+        keep = self.context_keep_recent_results
+        candidates = positions[:-keep] if keep else positions
+        changed: dict[int, list[Any]] = {}
+        count = 0
+        for mi, bi in candidates:
+            block = messages[mi].content[bi]
+            assert isinstance(block, ToolResultBlock)
+            if block.tool_use_id in cleared or len(block.content) < _CLEAR_MIN_CHARS:
+                continue
+            path = spilled.get(block.tool_use_id)
+            if path is None and workspace is not None:
+                path = await _save_output(workspace, "cleared", block.content)
+            where = f" Full output: {path}." if path else ""
+            stub = (
+                block.content[:_CLEAR_KEEP_CHARS]
+                + f"… [older tool output cleared to save context.{where}]"
+            )
+            blocks = changed.setdefault(mi, list(messages[mi].content))
+            blocks[bi] = block.model_copy(update={"content": stub})
+            cleared.add(block.tool_use_id)
+            count += 1
+        if not count:
+            return False
+        for mi, blocks in changed.items():
+            messages[mi] = messages[mi].model_copy(update={"content": blocks})
+        # Edited history invalidates the reasoning after the edit, and a
+        # reasoning block is only valid in the exact conversation that
+        # produced it — drop them all rather than send stale ones.
+        for mi, message in enumerate(messages):
+            if any(isinstance(b, ReasoningBlock) for b in message.content):
+                blocks = [b for b in message.content if not isinstance(b, ReasoningBlock)]
+                messages[mi] = message.model_copy(update={"content": blocks})
+        logger.info("Agent %r: cleared %d older tool results from context.", self.name, count)
+        return True
 
     def _cap_result(self, tool_name: str, result: ToolResult) -> ToolResult:
         """Apply ``max_tool_result_chars`` (loop safety bound, like
@@ -738,12 +976,28 @@ class _AgentToolSource(ToolSource):
         task = str(arguments.get("task", "")).strip()
         if not task:
             raise ToolError("Provide a 'task' describing what this agent should do.")
+        call = current_tool_call()
+
+        def forward(event: AgentEvent) -> None:
+            # The sub-agent's steps surface live in the parent's stream.
+            if call is not None and isinstance(event, StepEvent):
+                call.emit(
+                    event.model_copy(
+                        update={
+                            "id": f"{call.step_id}.{event.id}",
+                            "agent": event.agent or self.agent.name,
+                        }
+                    )
+                )
+
         try:
             if self.output == "structured":
-                result = await self.agent.run(task, context=context)
+                result = await self.agent.run(task, context=context, on_event=forward)
                 content = dump_str(result.output)
             else:
-                result = await self.agent.run(task, context=context, output_type=str)
+                result = await self.agent.run(
+                    task, context=context, output_type=str, on_event=forward
+                )
                 content = result.output
         except Exception:
             # Sanitized sub-agent failure: the parent model gets a calm,
@@ -760,6 +1014,30 @@ class _AgentToolSource(ToolSource):
             usage=result.usage,
             truncated=result.truncated,
         )
+
+
+def _step_event(step_id: str, info: StepInfo, status: str) -> StepEvent:
+    return StepEvent(
+        id=step_id,
+        title=info.title,
+        detail=info.detail,
+        phase=info.phase,
+        status=status,  # type: ignore[arg-type]
+        agent=info.agent,
+    )
+
+
+async def _save_output(workspace: Workspace, tool_name: str, content: str) -> Optional[str]:
+    """Save a tool output to ``<tmp>/tool-output/``; the path, or ``None``
+    if the workspace refused the write."""
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_name)[:40] or "tool"
+    path = f"{workspace.tmp.rstrip('/')}/tool-output/{safe}-{uuid.uuid4().hex[:8]}.txt"
+    try:
+        await workspace.write_file(path, content.encode("utf-8"))
+    except Exception:
+        logger.exception("Could not save tool output to the workspace; falling back to the cap.")
+        return None
+    return path
 
 
 def _sanitize_tool_name(name: str) -> str:

@@ -14,11 +14,13 @@ from pydantic import BaseModel, Field
 __all__ = [
     "ContentBlock",
     "Message",
+    "ReasoningBlock",
     "TextBlock",
     "ToolResultBlock",
     "ToolUseBlock",
     "assistant_text",
     "coerce_message",
+    "strip_reasoning",
     "user_message",
 ]
 
@@ -42,8 +44,25 @@ class ToolResultBlock(BaseModel):
     is_error: bool = False
 
 
+class ReasoningBlock(BaseModel):
+    """A model's reasoning (e.g. Anthropic thinking), carried opaquely.
+
+    Providers that return reasoning require it back unmodified on the next
+    request of the same run for multi-step tool use to keep working (and to
+    keep reasoning quality). ``provider`` names the model client that
+    produced it; ``data`` is that provider's raw block, re-sent verbatim by
+    the same provider's client and dropped by every other client. ``text``
+    is any human-readable summary the provider returned (often empty).
+    """
+
+    type: Literal["reasoning"] = "reasoning"
+    provider: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
+
+
 ContentBlock = Annotated[
-    Union[TextBlock, ToolUseBlock, ToolResultBlock],
+    Union[TextBlock, ToolUseBlock, ToolResultBlock, ReasoningBlock],
     Field(discriminator="type"),
 ]
 
@@ -77,3 +96,17 @@ def coerce_message(item: Message | dict[str, Any]) -> Message:
 def assistant_text(message: Message) -> str:
     """Concatenated text content of a message."""
     return "".join(b.text for b in message.content if isinstance(b, TextBlock))
+
+
+def strip_reasoning(messages: list[Message]) -> list[Message]:
+    """``messages`` without reasoning blocks (messages left empty are
+    dropped). Use when replaying a transcript into a *different* run:
+    providers bind reasoning to the exact conversation that produced it, so
+    reasoning from an earlier run is at best ignored and at worst rejected
+    once the system prompt or history around it differs."""
+    out: list[Message] = []
+    for message in messages:
+        blocks = [b for b in message.content if not isinstance(b, ReasoningBlock)]
+        if blocks:
+            out.append(message.model_copy(update={"content": blocks}))
+    return out

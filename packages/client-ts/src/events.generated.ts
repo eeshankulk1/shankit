@@ -57,7 +57,10 @@ export interface TextDeltaEvent {
  * A user-facing narration step, produced by the step-describer.
  *
  * Each tool call yields a ``running`` event followed by a ``done`` or
- * ``error`` event with the same ``id``.
+ * ``error`` event with the same ``id``. ``agent`` attributes the step to
+ * a delegated sub-agent (its steps are forwarded into the parent run
+ * with ids prefixed by the parent step's id) or whatever the
+ * step-describer names; ``None`` means the running agent itself.
  */
 export interface StepEvent {
   type: "step";
@@ -66,6 +69,7 @@ export interface StepEvent {
   detail: string | null;
   phase: string | null;
   status: "running" | "done" | "error";
+  agent: string | null;
 }
 
 /**
@@ -102,7 +106,8 @@ export interface UsageEvent {
  * ``message`` is human-safe and may be shown to end users. ``code`` says
  * *what kind* of failure without parsing the message; the codes emitted
  * today are ``model_error`` (the model provider call failed),
- * ``max_iterations``, ``output_validation``, ``error`` (other framework
+ * ``max_iterations``, ``output_validation``, ``timeout`` (the run passed
+ * its ``timeout_s``), ``error`` (other framework
  * errors), and ``unexpected`` — the field stays an open string so new
  * codes are not a breaking change. ``retryable`` is true when retrying
  * the run shortly is reasonable (rate limits, provider overloads).

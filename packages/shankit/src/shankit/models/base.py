@@ -3,9 +3,10 @@
 The agent loop talks to models only through :class:`ModelClient`. Requests
 carry messages/tools in the framework's one boundary shape (Anthropic
 tool-use shape); each client converts to its provider's wire format
-internally. Provider-specific response blocks with no place in that shape
-(e.g. Anthropic thinking or server-tool blocks) are dropped by the client
-during conversion — the boundary carries text and tool use only.
+internally. Reasoning comes back as opaque ``ReasoningBlock``s the client
+re-sends verbatim (and drops when another provider produced them); other
+provider-specific blocks with no place in the shape (e.g. server-tool
+blocks) are dropped during conversion.
 
 Streaming contract: ``stream()`` yields zero or more ``ModelTextDelta``
 events followed by exactly one ``ModelResponseComplete`` carrying the full
@@ -41,6 +42,8 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelTextDelta",
+    "Reasoning",
+    "ReasoningEffort",
     "default_stream_from_complete",
     "map_sdk_error",
     "model_error_for_status",
@@ -56,6 +59,24 @@ class ForcedTool(BaseModel):
 
 ToolChoice = Union[Literal["auto", "required", "none"], ForcedTool]
 
+ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
+
+
+class Reasoning(BaseModel):
+    """Provider-neutral reasoning ("thinking") settings for a request.
+
+    ``enabled=False`` explicitly turns reasoning off (for models that
+    reason by default). With ``enabled=True``, ``effort`` sets how hard the
+    model thinks (``None``: the provider default), and ``budget_tokens``
+    asks for a fixed thinking budget instead, for models that only take
+    one. Each client maps this onto its provider's parameters and ignores
+    what its provider has no equivalent for.
+    """
+
+    enabled: bool = True
+    effort: Optional[ReasoningEffort] = None
+    budget_tokens: Optional[int] = None
+
 
 class ModelRequest(BaseModel):
     model: str
@@ -65,6 +86,8 @@ class ModelRequest(BaseModel):
     tool_choice: ToolChoice = "auto"
     max_tokens: int = 4096
     temperature: Optional[float] = None
+    #: ``None``: send nothing (the provider's default behavior).
+    reasoning: Optional[Reasoning] = None
 
 
 class ModelResponse(BaseModel):

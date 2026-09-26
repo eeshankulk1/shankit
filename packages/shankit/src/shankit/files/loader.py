@@ -55,6 +55,7 @@ def load_agent(
     variables: Optional[Mapping[str, Any]] = None,
     default_model: Optional[str] = None,
     describe_step: Optional[StepDescriber] = default_step_describer,
+    agent_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> Agent:
     """Load one agent definition file into an :class:`~shankit.Agent`.
 
@@ -66,6 +67,10 @@ def load_agent(
         default_model: Used when the file omits ``model``.
         describe_step: Step-describer to attach (observability is configured
             in code, not prose).
+        agent_kwargs: Further :class:`~shankit.Agent` options the file
+            format doesn't express (runtime wiring like ``workspace=``,
+            ``max_tool_result_chars=``, ``reasoning=``). Frontmatter-derived
+            options win on conflict.
     """
     path = Path(path)
     registry = registry if registry is not None else default_registry
@@ -134,13 +139,16 @@ def load_agent(
         instructions = body.replace("{{", "{").replace("}}", "}")
 
     return Agent(
-        name=str(name),
-        description=frontmatter.get("description"),
-        model=str(model),
-        instructions=instructions,
-        tools=tools,
-        output_type=output_type,
-        describe_step=describe_step,
+        **{
+            **dict(agent_kwargs or {}),
+            "name": str(name),
+            "description": frontmatter.get("description"),
+            "model": str(model),
+            "instructions": instructions,
+            "tools": tools,
+            "output_type": output_type,
+            "describe_step": describe_step,
+        }
     )
 
 
@@ -151,6 +159,7 @@ def load_agents(
     variables: Optional[Mapping[str, Any]] = None,
     default_model: Optional[str] = None,
     describe_step: Optional[StepDescriber] = default_step_describer,
+    agent_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Agent]:
     """Load every ``*.md`` agent file in a directory (non-recursive).
 
@@ -167,6 +176,7 @@ def load_agents(
             variables=variables,
             default_model=default_model,
             describe_step=describe_step,
+            agent_kwargs=agent_kwargs,
         )
         if agent.name in agents:
             raise AgentFileError(

@@ -38,6 +38,16 @@ Agent(
                                 # unbounded payloads (files over MCP, vendor APIs) —
                                 # one oversized result can otherwise exceed the
                                 # model's context window and kill the run.
+    workspace=None,              # a Workspace, or a function of the per-run context
+                                # returning one — see Workspaces below.
+    spill_threshold_chars=25_000, # with a workspace, spill an oversized tool result
+                                # to a file instead of truncating it.
+    reasoning=None,             # True | "low".."max" | False | Reasoning(); provider-
+                                # neutral "thinking", off by default.
+    context_clear_threshold_tokens=None, # stub old tool results once a pass's prompt
+                                # crosses this many tokens (long-run context management).
+    context_keep_recent_results=3, # results kept intact when clearing context.
+    timeout_s=None,             # wall-clock bound on the whole run, beside max_iterations.
 )
 ```
 
@@ -51,6 +61,9 @@ result.trajectory  # list[ToolCallRecord] — every tool call, for evals
 result.sources     # list[Source] surfaced during the run
 result.truncated   # True if any pass (or sub-agent) stopped at the token limit,
                    # or any tool result was capped by max_tool_result_chars
+result.messages    # every message the run added, prompt first — in-process only,
+                   # not on the stream or in RunResult's serialization; pass it
+                   # back as `history` to continue with full tool context
 ```
 
 `truncated` is deliberately sticky — a cut-off intermediate pass can corrupt a
@@ -164,8 +177,96 @@ its text.
 > Pass sub-agents **as tools explicitly** (`sub.as_tool()`), never the `Agent`
 > object itself — shankit raises a `TypeError` to keep the boundary obvious.
 
+A sub-agent's own steps forward live into the parent's stream as they happen —
+the parent's consumer sees them as they occur, not just as one tool result at
+the end. Each forwarded `StepEvent` gets its `agent` field set to the
+sub-agent's name and its `id` prefixed with the parent step's id, so ids stay
+unique when several sub-agents run.
+
+### Delegation: one tool over a roster
+
+`as_tool()` gives each sub-agent its own tool. `DelegateToolSource` instead
+puts a **roster** of sub-agents behind a single `delegate` tool — the parent
+sees one tool whose description lists what each agent is for, and picks by
+name:
+
+```python
+from shankit import Agent, AgentDelegate, DelegateToolSource
+
+triage = Agent(name="triage", model="anthropic:claude-sonnet-4-5", instructions="...")
+billing = Agent(name="billing", model="anthropic:claude-sonnet-4-5", instructions="...")
+
+parent = Agent(
+    name="support",
+    model="anthropic:claude-sonnet-4-5",
+    tools=[DelegateToolSource([triage, billing], max_calls_per_delegate=2)],
+)
+```
+
+Pass `Agent`s directly (auto-wrapped in `AgentDelegate`) or implement
+`Delegate` for anything else behind the same tool (an agent with its own
+post-processing, a remote agent). The source enforces per-delegate call
+budgets, dedupes an identical task to the same delegate, sanitizes a
+delegate's crash into a calm "couldn't complete" result, forwards its steps
+live (same `agent`-tagged `StepEvent`s as `as_tool()`), and rolls its usage,
+sources, and `truncated` flag into the parent run.
+
+`DelegateToolSource.from_directory("agents/", agent_kwargs={"workspace": ...})`
+builds the roster straight from a directory of `agents/*.md` files (see
+[File-first definitions](file-first.md)); `agent_kwargs` passes runtime wiring
+the file format can't express, like a shared workspace, through to every
+agent it loads.
+
 For the case agents-as-tools does _not_ cover — when **code, not the model**,
 controls flow — reach for the experimental [network](durability.md#networks-experimental).
+
+## Workspaces
+
+An agent's `workspace` gives it a computer: a filesystem, and optionally a
+shell. `Workspace` is a contract, not a vendor — a hosted microVM, a
+container, or `LocalWorkspace` (a directory + subprocess) all implement the
+same small surface (`exec` optional, `read_file`/`write_file` required,
+`home`/`tmp`, and `resolve()` for `~`/relative paths). Name one per run the
+same way a connector names *whose* credentials to use:
+
+```python
+from shankit import Agent, LocalWorkspace, WorkspaceTools
+
+def sandbox_for(ctx):
+    return LocalWorkspace(f"/var/sandboxes/{ctx['user_id']}")
+
+agent = Agent(
+    name="coder",
+    model="anthropic:claude-sonnet-4-5",
+    workspace=sandbox_for,
+    tools=[WorkspaceTools(sandbox_for)],  # same spec, so both resolve the same workspace
+)
+```
+
+`WorkspaceTools` ships `Bash`/`Read`/`Write`/`Edit` in the shapes coding
+agents converge on, as plain JSON-schema tools any provider can call (no
+Glob/Grep — `rg`/`ls` via `Bash` cover both). `Bash` drops itself
+automatically for a workspace that can't `exec`. A non-zero exit is
+information, not a tool failure; only a timeout is. `describe_workspace_step`
+is a ready-made step-describer for these four tools (compose it with your own:
+`describe_workspace_step(...) or my_describer(...)`), and
+`WorkspaceTools.after_tool` is the hook for syncing files out, logging work,
+or attaching artifacts.
+
+With a workspace, a tool result over `spill_threshold_chars` (default 25K) is
+spilled — written whole to `<workspace.tmp>/tool-output/`, with the model
+getting its head, tail, and path instead of the full text. This is lossless
+where `max_tool_result_chars` truncates. `context_clear_threshold_tokens`
+does the same for the whole run: once a pass's prompt crosses the threshold,
+older tool results are stubbed (full text saved to the workspace first,
+falling back to the cap without one) and reasoning blocks are dropped,
+keeping the newest `context_keep_recent_results` results intact.
+
+> **Security note:** `LocalWorkspace` is for development and tests, not a
+> security boundary — commands run as the current OS user with full access
+> to the host. Give an agent that handles untrusted content, or acts for
+> other people, a real sandbox (a hosted microVM or container) behind the
+> same `Workspace` contract.
 
 ## Models
 
@@ -192,14 +293,17 @@ generates from.
 | `event.type` | Payload |
 |---|---|
 | `text_delta` | `text` — an incremental chunk of the assistant's reply |
-| `step` | `id`, `title`, `detail`, `phase`, `status` (`running`/`done`/`error`) — user-facing narration |
+| `step` | `id`, `title`, `detail`, `phase`, `status` (`running`/`done`/`error`), `agent` — user-facing narration; `agent` names the delegated sub-agent the step belongs to, `None` for the running agent itself |
 | `source` | `source` — a citation surfaced by a tool |
 | `usage` | `usage` — token usage for one model pass or sub-agent (they sum to `done.usage`) |
-| `done` | `text`, `output`, `usage`, `truncated` — terminal success |
+| `done` | `text`, `output`, `usage`, `truncated` — terminal success. `messages` also rides the event (every message the run added) but is in-process only — excluded from serialization, never on the SSE wire or in the generated TS types |
 | `error` | `message`, `code`, `retryable` — terminal failure (human-safe message) |
 
 A stream **always** terminates with exactly one of `done` or `error`, so an SSE
-consumer can tell "finished" from "the connection just dropped."
+consumer can tell "finished" from "the connection just dropped." `code` is an
+open string; codes emitted today are `model_error`, `max_iterations`,
+`output_validation`, `timeout` (the run passed its `timeout_s`), `error`, and
+`unexpected`.
 
 ## Observability
 
@@ -224,6 +328,8 @@ One choke point applies the same rules to every tool source and model:
 - Model provider failures → `ModelError(provider, status, retryable)`, never a
   raw SDK exception across the neutral boundary; the shipped clients classify
   their own transient failures.
+- Exceeding `timeout_s` → `RunTimeoutError` (error code `timeout`), checked
+  between passes, beside `max_iterations`.
 
 ## Where to go next
 

@@ -26,6 +26,9 @@ class StepInfo(BaseModel):
     title: str
     detail: Optional[str] = None
     phase: Optional[str] = None
+    #: Which agent (or app) the step belongs to, when the caller wants to
+    #: attribute it (e.g. to paint a brand icon). ``None``: this agent.
+    agent: Optional[str] = None
 
 
 StepDescriber = Callable[[str, dict[str, Any], Any], Optional[StepInfo]]

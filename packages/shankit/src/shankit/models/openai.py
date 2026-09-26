@@ -24,6 +24,8 @@ from .base import (
 __all__ = ["OpenAIModel"]
 
 _FINISH_REASONS = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
+# OpenAI's effort scale tops out at "high".
+_OPENAI_EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
 
 
 class OpenAIModel(ModelClient):
@@ -148,6 +150,12 @@ def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     }
     if request.temperature is not None:
         kwargs["temperature"] = request.temperature
+    reasoning = request.reasoning
+    if reasoning is not None and reasoning.enabled and reasoning.effort is not None:
+        # Chat Completions has no reasoning round-trip (reasoning items live
+        # in the Responses API), only the effort knob — and only reasoning
+        # models accept it, so it is sent only when asked for.
+        kwargs["reasoning_effort"] = _OPENAI_EFFORT[reasoning.effort]
     if request.tools:
         kwargs["tools"] = [
             {

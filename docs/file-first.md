@@ -119,14 +119,37 @@ agent = load_agent(
     variables={...},          # optional load-time placeholder values
     default_model="anthropic:claude-sonnet-4-5",  # optional fallback if the file omits model
     describe_step=my_describer,                    # observability is configured in code, not prose
+    agent_kwargs={"workspace": my_workspace},       # runtime wiring the file can't express
 )
 
 # A directory → a name → Agent mapping.
-agents = load_agents("agents/")
+agents = load_agents("agents/", agent_kwargs={"workspace": my_workspace})
 ```
 
 Observability (`describe_step`) is passed in code, not declared in frontmatter —
 it's a capability (a function), and capabilities live in Python.
+
+`agent_kwargs` passes through any further `Agent` option the frontmatter has
+no key for — a `workspace=`, `max_tool_result_chars=`, `reasoning=` — to every
+agent the call loads. Frontmatter-derived options (`name`, `model`, `tools`,
+`output_type`) win on conflict. `DelegateToolSource.from_directory` builds a
+delegation roster the same way, forwarding `agent_kwargs` to every agent it
+loads so, for example, a shared workspace reaches every sub-agent in the
+directory:
+
+```python
+from shankit import DelegateToolSource
+
+roster = DelegateToolSource.from_directory(
+    "agents/",
+    agent_kwargs={"workspace": my_workspace},
+)
+parent = Agent(name="support", model="anthropic:claude-sonnet-4-5", tools=[roster])
+```
+
+See [Core concepts: delegation](concepts.md#delegation-one-tool-over-a-roster)
+for what `DelegateToolSource` enforces (budgets, dedup, sanitized failures,
+live step forwarding).
 
 ## When to use Python instead
 
