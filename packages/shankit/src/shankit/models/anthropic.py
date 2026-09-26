@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 from ..exceptions import ModelError, ShankitError
-from ..messages import ContentBlock, TextBlock, ToolUseBlock
+from ..messages import ContentBlock, Message, ReasoningBlock, TextBlock, ToolUseBlock
 from ..usage import Usage
 from .base import (
     ForcedTool,
@@ -21,6 +21,8 @@ from .base import (
 )
 
 __all__ = ["AnthropicModel"]
+
+_PROVIDER = "anthropic"
 
 _STOP_REASONS = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
 
@@ -38,15 +40,20 @@ class AnthropicModel(ModelClient):
     and excluded from ``input_tokens`` by the API) on
     ``Usage.cache_write_tokens``.
 
+    Reasoning: ``ModelRequest.reasoning`` maps to ``thinking`` (adaptive,
+    or a fixed ``budget_tokens``, or disabled) plus ``output_config.effort``.
+    ``thinking`` and ``redacted_thinking`` blocks come back as
+    :class:`ReasoningBlock` and are re-sent verbatim on later passes, which
+    tool-use continuations with thinking on require. With reasoning on,
+    ``temperature`` is not sent (thinking models reject sampling
+    parameters), and a pass that forces a tool (structured output) turns
+    thinking off for that one request, since forced ``tool_choice`` and
+    thinking can't be combined.
+
     ``extra_request_kwargs`` is an escape hatch merged (last) into every
     ``messages.create``/``messages.stream`` call — for provider parameters
-    the neutral :class:`ModelRequest` doesn't model. The motivating case:
-    models whose default thinking mode emits ``thinking`` blocks (e.g.
-    Claude Sonnet 5 runs adaptive thinking when the parameter is omitted)
-    need ``{"thinking": {"type": "disabled"}}`` here, because this client's
-    v1 boundary shape drops non-text/tool_use blocks — echoing an assistant
-    turn back *without* its thinking blocks breaks tool-use continuations.
-    Keys collide with the generated ones at the caller's own risk.
+    the neutral :class:`ModelRequest` doesn't model. Keys collide with the
+    generated ones at the caller's own risk.
     """
 
     def __init__(
@@ -121,13 +128,25 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
     kwargs: dict[str, Any] = {
         "model": request.model,
         "max_tokens": request.max_tokens,
-        "messages": [m.model_dump() for m in request.messages],
+        "messages": [p for m in request.messages if (p := _message_param(m)) is not None],
     }
     if cache_system_and_tools:
         kwargs["cache_control"] = {"type": "ephemeral"}
     if request.system is not None:
         kwargs["system"] = request.system
-    if request.temperature is not None:
+    reasoning = request.reasoning
+    forced = isinstance(request.tool_choice, ForcedTool) or request.tool_choice == "required"
+    thinking_on = reasoning is not None and reasoning.enabled and not (forced and request.tools)
+    if reasoning is not None:
+        if not thinking_on:
+            kwargs["thinking"] = {"type": "disabled"}
+        elif reasoning.budget_tokens is not None:
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": reasoning.budget_tokens}
+        else:
+            kwargs["thinking"] = {"type": "adaptive"}
+        if thinking_on and reasoning.effort is not None:
+            kwargs["output_config"] = {"effort": reasoning.effort}
+    if request.temperature is not None and not thinking_on:
         kwargs["temperature"] = request.temperature
     if request.tools:
         kwargs["tools"] = [t.model_dump() for t in request.tools]
@@ -141,6 +160,23 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
     return kwargs
 
 
+def _message_param(message: Message) -> Optional[dict[str, Any]]:
+    """One neutral message as an Anthropic message param. Reasoning from
+    this provider is re-sent verbatim; reasoning from any other provider is
+    dropped. A message left with no content is omitted (consecutive
+    same-role messages are merged by the API)."""
+    content: list[dict[str, Any]] = []
+    for block in message.content:
+        if isinstance(block, ReasoningBlock):
+            if block.provider == _PROVIDER and block.data:
+                content.append(dict(block.data))
+            continue
+        content.append(block.model_dump())
+    if not content:
+        return None
+    return {"role": message.role, "content": content}
+
+
 def parse_message(message: Any) -> ModelResponse:
     """Convert an Anthropic ``Message`` into the neutral response shape."""
     content: list[ContentBlock] = []
@@ -152,8 +188,28 @@ def parse_message(message: Any) -> ModelResponse:
             content.append(
                 ToolUseBlock(id=block.id, name=block.name, input=dict(block.input or {}))
             )
-        # Other block types (thinking, server tool use, ...) are not part of
-        # the v1 boundary shape and are dropped here.
+        elif block_type == "thinking":
+            thinking = getattr(block, "thinking", "") or ""
+            content.append(
+                ReasoningBlock(
+                    provider=_PROVIDER,
+                    data={
+                        "type": "thinking",
+                        "thinking": thinking,
+                        "signature": getattr(block, "signature", "") or "",
+                    },
+                    text=thinking,
+                )
+            )
+        elif block_type == "redacted_thinking":
+            content.append(
+                ReasoningBlock(
+                    provider=_PROVIDER,
+                    data={"type": "redacted_thinking", "data": getattr(block, "data", "")},
+                )
+            )
+        # Other block types (server tool use, ...) are not part of the
+        # boundary shape and are dropped here.
     usage = Usage(
         input_tokens=getattr(message.usage, "input_tokens", 0) or 0,
         output_tokens=getattr(message.usage, "output_tokens", 0) or 0,

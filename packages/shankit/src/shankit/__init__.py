@@ -21,6 +21,7 @@ Public surface (design §11):
 # that holds without a separate import. It is dependency-light. Placed after
 # the core imports because evals itself imports from shankit.agent.
 from . import evals
+from ._calls import ToolCallContext, current_tool_call
 from .agent import Agent, RunResult, ToolCallRecord
 from .durability import (
     Checkpoint,
@@ -47,17 +48,30 @@ from .exceptions import (
     ModelError,
     OutputValidationError,
     PromptVariableError,
+    RunTimeoutError,
     ShankitError,
     ToolError,
     ToolNotFoundError,
 )
 from .files import Registry, default_registry, load_agent, load_agents, register
-from .messages import Message, TextBlock, ToolResultBlock, ToolUseBlock, coerce_message
+from .messages import (
+    Message,
+    ReasoningBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    coerce_message,
+    strip_reasoning,
+)
 from .models import ModelClient, ModelRequest, ModelResponse, register_provider, resolve_model
+from .models.base import Reasoning
 from .observe import StepDescriber, StepInfo, default_step_describer
 from .sse import format_sse, sse_stream
 from .tools import (
+    AgentDelegate,
     CompositeToolSource,
+    Delegate,
+    DelegateToolSource,
     FunctionTool,
     FunctionToolSource,
     MCPToolSource,
@@ -67,11 +81,19 @@ from .tools import (
     tool,
 )
 from .usage import Usage
+from .workspace import (
+    ExecResult,
+    LocalWorkspace,
+    Workspace,
+    WorkspaceTools,
+    describe_workspace_step,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Agent",
+    "AgentDelegate",
     "AgentEvent",
     "AgentFileError",
     "Artifact",
@@ -79,12 +101,16 @@ __all__ = [
     "Checkpoint",
     "Checkpointer",
     "CompositeToolSource",
+    "Delegate",
+    "DelegateToolSource",
     "DoneEvent",
     "ErrorEvent",
+    "ExecResult",
     "FunctionTool",
     "FunctionToolSource",
     "InMemoryCheckpointer",
     "InterruptInfo",
+    "LocalWorkspace",
     "MCPToolSource",
     "MaxIterationsError",
     "Message",
@@ -94,8 +120,11 @@ __all__ = [
     "ModelResponse",
     "OutputValidationError",
     "PromptVariableError",
+    "Reasoning",
+    "ReasoningBlock",
     "Registry",
     "RunResult",
+    "RunTimeoutError",
     "ShankitError",
     "Source",
     "SourceEvent",
@@ -105,6 +134,7 @@ __all__ = [
     "StepInfo",
     "TextBlock",
     "TextDeltaEvent",
+    "ToolCallContext",
     "ToolCallRecord",
     "ToolDef",
     "ToolError",
@@ -115,10 +145,14 @@ __all__ = [
     "ToolUseBlock",
     "Usage",
     "UsageEvent",
+    "Workspace",
+    "WorkspaceTools",
     "__version__",
     "coerce_message",
+    "current_tool_call",
     "default_registry",
     "default_step_describer",
+    "describe_workspace_step",
     "evals",
     "format_sse",
     "load_agent",
@@ -127,5 +161,6 @@ __all__ = [
     "register_provider",
     "resolve_model",
     "sse_stream",
+    "strip_reasoning",
     "tool",
 ]

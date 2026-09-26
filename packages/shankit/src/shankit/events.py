@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from .messages import Message
 from .usage import Usage
 
 __all__ = [
@@ -72,7 +73,10 @@ class StepEvent(BaseModel):
     """A user-facing narration step, produced by the step-describer.
 
     Each tool call yields a ``running`` event followed by a ``done`` or
-    ``error`` event with the same ``id``.
+    ``error`` event with the same ``id``. ``agent`` attributes the step to
+    a delegated sub-agent (its steps are forwarded into the parent run
+    with ids prefixed by the parent step's id) or whatever the
+    step-describer names; ``None`` means the running agent itself.
     """
 
     type: Literal["step"] = "step"
@@ -81,6 +85,7 @@ class StepEvent(BaseModel):
     detail: Optional[str] = None
     phase: Optional[str] = None
     status: Literal["running", "done", "error"] = "running"
+    agent: Optional[str] = None
 
 
 class SourceEvent(BaseModel):
@@ -115,7 +120,8 @@ class ErrorEvent(BaseModel):
     ``message`` is human-safe and may be shown to end users. ``code`` says
     *what kind* of failure without parsing the message; the codes emitted
     today are ``model_error`` (the model provider call failed),
-    ``max_iterations``, ``output_validation``, ``error`` (other framework
+    ``max_iterations``, ``output_validation``, ``timeout`` (the run passed
+    its ``timeout_s``), ``error`` (other framework
     errors), and ``unexpected`` — the field stays an open string so new
     codes are not a breaking change. ``retryable`` is true when retrying
     the run shortly is reasonable (rate limits, provider overloads).
@@ -145,6 +151,12 @@ class DoneEvent(BaseModel):
     output: Any = None
     usage: Usage = Field(default_factory=Usage)
     truncated: bool = False
+    #: The run's own transcript: every message it added to the
+    #: conversation, starting with the prompt — assistant passes (text,
+    #: tool calls, reasoning) and tool results. Pass it back as ``history``
+    #: to continue with full tool context. In-process only: excluded from
+    #: serialization, so it never rides the SSE wire.
+    messages: list[Message] = Field(default_factory=list, exclude=True)
 
 
 AgentEvent = Annotated[

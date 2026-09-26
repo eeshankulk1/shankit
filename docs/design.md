@@ -518,3 +518,59 @@ where the original text had a gap (flagged ⚠):
     "preview" is) stays the consumer's job via `transform_result`; the cap is
     only the backstop that turns "the whole turn dies" into "one result is
     cut".
+15. **Agents get a computer: the workspace seam and the long-run loop.**
+    The first consumer moved its assistant from "orchestrator over per-app
+    sub-agents" to "one agent with a shell, files, and CLIs" (the Claude Code
+    / Muse shape). What that needed from the framework, each a small
+    primitive with that one real usage:
+    - **`Workspace`** (`exec` optional, `read_file`/`write_file` required,
+      `home`/`tmp`) is a contract, not a vendor: a hosted microVM, a
+      container, or `LocalWorkspace` (a directory + subprocess; explicitly
+      *not* a security boundary). Agents name one per run like connectors
+      name a user: `Agent(workspace=lambda ctx: ...)`. **`WorkspaceTools`**
+      ships `Bash`/`Read`/`Write`/`Edit` in the shapes coding agents
+      converge on, as plain JSON-schema tools so any provider can call them;
+      no Glob/Grep (`rg`/`ls` via Bash). A non-zero exit is information,
+      not an error; only a timeout is. `after_tool` is the consumer's hook
+      (sync files out, log work, attach artifacts).
+    - **Spill, don't truncate.** With a workspace, a result over
+      `spill_threshold_chars` (default 25K) is written whole to
+      `<tmp>/tool-output/` and the model gets its head, tail, and path.
+      `max_tool_result_chars` stays the backstop without one.
+    - **The run transcript** (`DoneEvent.messages` / `RunResult.messages`:
+      every message the run added, prompt first) makes tool-level replay
+      possible. It is `exclude=True` on the event: in-process only, never
+      on the SSE wire or in the generated TS types.
+    - **Reasoning round-trip, provider-neutral.** `ReasoningBlock{provider,
+      data, text}` carries a provider's reasoning opaquely: the producing
+      client re-sends `data` verbatim, every other client drops it.
+      `Agent(reasoning=True|"low".."max"|False|Reasoning)`; Anthropic maps
+      to adaptive/budget/disabled thinking + `output_config.effort` (and
+      drops `temperature`, and turns thinking off for a pass that forces a
+      tool); OpenAI Chat Completions maps effort to `reasoning_effort`
+      (no round-trip exists there). `strip_reasoning()` is for replaying a
+      transcript into a *different* run: providers bind reasoning to the
+      exact conversation that produced it.
+    - **Loop-level context clearing** (`context_clear_threshold_tokens`,
+      keep the newest N results) stubs old tool results (full text saved to
+      the workspace first). Because editing history invalidates later
+      reasoning, a clear also drops every reasoning block and runs the next
+      pass with reasoning off. Provider-native context editing is better
+      where it exists; this is the neutral fallback, off by default.
+    - **`timeout_s`**: a wall-clock bound checked between passes
+      (`RunTimeoutError`, error code `timeout`), beside `max_iterations`.
+    - **Delegation** (`DelegateToolSource`): one `delegate` tool over a
+      roster (`AgentDelegate`, or any `Delegate`), with the budget/dedup,
+      sanitized failures, step forwarding, and usage roll-up harvested from
+      the consumer's per-app consult tool. `from_directory` loads
+      `agents/*.md`; `load_agent(s)` gained `agent_kwargs` for runtime
+      wiring the file format doesn't express (the workspace).
+    - **⚠ Tools can stream events while they run.** The tool seam stays two
+      methods; `current_tool_call()` is the optional side channel (a
+      context var scoped to the call's task): `emit()` pushes an event into
+      the parent stream immediately, and `run_state` holds per-run state so
+      a source needn't be rebuilt per run. The loop now waits on the tool
+      batch *and* an event queue, yielding as events arrive. Delegated and
+      `as_tool()` sub-agents forward their steps this way, ids prefixed with
+      the parent step id and `StepEvent.agent` set. `StepEvent`/`StepInfo`
+      gained `agent` (additive on the wire).

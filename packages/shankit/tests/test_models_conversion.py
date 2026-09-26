@@ -63,7 +63,7 @@ def test_anthropic_parse_message():
         content=[
             SimpleNamespace(type="text", text="hello"),
             SimpleNamespace(type="tool_use", id="tu1", name="search", input={"q": "x"}),
-            SimpleNamespace(type="thinking", thinking="..."),  # dropped
+            SimpleNamespace(type="server_tool_use", id="st1"),  # dropped
         ],
         stop_reason="tool_use",
         usage=SimpleNamespace(input_tokens=11, output_tokens=7),
@@ -258,3 +258,86 @@ async def test_shutdown_survives_a_failing_close():
     good, _ = resolve_model("goodclose:m")
     await shutdown()  # must not raise
     assert good.closed  # the healthy client still closed
+
+
+# ---------------------------------------------------------------- reasoning
+
+from shankit.messages import ReasoningBlock  # noqa: E402
+from shankit.models.base import Reasoning  # noqa: E402
+
+
+def test_anthropic_reasoning_maps_to_thinking_and_effort():
+    kwargs = anthropic_kwargs(sample_request(reasoning=Reasoning(effort="high"), temperature=0.3))
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert kwargs["output_config"] == {"effort": "high"}
+    assert "temperature" not in kwargs  # thinking models reject sampling params
+
+    budget = anthropic_kwargs(sample_request(reasoning=Reasoning(budget_tokens=2048)))
+    assert budget["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+    assert "output_config" not in budget
+
+    off = anthropic_kwargs(sample_request(reasoning=Reasoning(enabled=False), temperature=0.2))
+    assert off["thinking"] == {"type": "disabled"}
+    assert off["temperature"] == 0.2
+
+    assert "thinking" not in anthropic_kwargs(sample_request())
+
+
+def test_anthropic_forced_tool_turns_thinking_off_for_that_request():
+    kwargs = anthropic_kwargs(
+        sample_request(reasoning=Reasoning(effort="high"), tool_choice=ForcedTool(name="t"))
+    )
+    assert kwargs["thinking"] == {"type": "disabled"}
+    assert "output_config" not in kwargs
+
+
+def test_anthropic_thinking_round_trips_and_foreign_reasoning_is_dropped():
+    message = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="thinking", thinking="let me see", signature="sig1"),
+            SimpleNamespace(type="redacted_thinking", data="opaque"),
+            SimpleNamespace(type="tool_use", id="tu1", name="t", input={}),
+        ],
+        stop_reason="tool_use",
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    response = parse_message(message)
+    thinking, redacted, _ = response.content
+    assert isinstance(thinking, ReasoningBlock)
+    assert thinking.text == "let me see"
+    assert isinstance(redacted, ReasoningBlock)
+
+    foreign = ReasoningBlock(provider="openai", data={"id": "rs_1"})
+    request = sample_request(
+        messages=[
+            Message(role="user", content=[TextBlock(text="hi")]),
+            Message(role="assistant", content=[*response.content]),
+            Message(role="user", content=[ToolResultBlock(tool_use_id="tu1", content="ok")]),
+            Message(role="assistant", content=[foreign]),  # nothing left -> omitted
+        ]
+    )
+    sent = anthropic_kwargs(request)["messages"]
+    assert len(sent) == 3
+    assert sent[1]["content"][0] == {
+        "type": "thinking",
+        "thinking": "let me see",
+        "signature": "sig1",
+    }
+    assert sent[1]["content"][1] == {"type": "redacted_thinking", "data": "opaque"}
+    assert sent[1]["content"][2]["type"] == "tool_use"
+
+
+def test_openai_reasoning_effort_and_reasoning_blocks_ignored():
+    kwargs = openai_kwargs(sample_request(reasoning=Reasoning(effort="xhigh")))
+    assert kwargs["reasoning_effort"] == "high"
+    assert "reasoning_effort" not in openai_kwargs(sample_request(reasoning=Reasoning()))
+    messages = to_openai_messages(
+        None,
+        [
+            Message(
+                role="assistant",
+                content=[ReasoningBlock(provider="anthropic", data={}), TextBlock(text="hi")],
+            )
+        ],
+    )
+    assert messages == [{"role": "assistant", "content": "hi"}]

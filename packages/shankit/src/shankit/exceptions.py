@@ -22,6 +22,7 @@ __all__ = [
     "ModelError",
     "OutputValidationError",
     "PromptVariableError",
+    "RunTimeoutError",
     "ShankitError",
     "ToolError",
     "ToolNotFoundError",
@@ -84,6 +85,10 @@ class MaxIterationsError(ShankitError):
     """The agent loop hit its iteration limit without finishing."""
 
 
+class RunTimeoutError(ShankitError):
+    """The run exceeded its wall-clock ``timeout_s``."""
+
+
 class AgentFileError(ShankitError):
     """An agent definition file could not be parsed or resolved."""
 
@@ -100,6 +105,8 @@ def error_code(exc: BaseException) -> str:
         return "max_iterations"
     if isinstance(exc, OutputValidationError):
         return "output_validation"
+    if isinstance(exc, RunTimeoutError):
+        return "timeout"
     if isinstance(exc, ShankitError):
         return "error"
     return "unexpected"

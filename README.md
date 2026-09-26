@@ -232,7 +232,7 @@ Every major surface has a runnable example in [`examples/`](examples):
 Full documentation lives in [`docs/`](docs/README.md):
 
 - **[Getting started](docs/getting-started.md)** — install, your first agent, both run modes.
-- **[Core concepts](docs/concepts.md)** — the tool seam, per-run context, run modes, multi-agent, models, errors.
+- **[Core concepts](docs/concepts.md)** — the tool seam, per-run context, run modes, multi-agent, workspaces, models, errors.
 - **[File-first definitions](docs/file-first.md)** — frontmatter reference, substitution, import vs. registry refs.
 - **[Connectors](docs/connectors.md)** — the OAuth connector contract, the connection lifecycle, Composio.
 - **[Durability & networks](docs/durability.md)** — the checkpointer contract and the experimental graph.
