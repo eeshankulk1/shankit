@@ -137,6 +137,55 @@ to, like a question put to a human whose answer arrives later as a new
 message. The run finishes with `done` as usual (a structured run gets no
 validated `output`).
 
+### Images and provider blocks in results
+
+`ToolResult.content` may also be a list of blocks: `TextBlock`, `ImageBlock`
+(base64, e.g. a screenshot), and `ProviderBlock` - a provider-specific block
+carried opaquely (Anthropic's `browser_state`). The client of that provider
+sends the block's `data` verbatim; every other client sends its `text`
+fallback, so one result reads well on any provider. `content_text()` renders
+any content as text (it's what trajectories and evals record).
+
+```python
+ToolResult(content=[
+    TextBlock(text="Screenshot of the checkout page."),
+    ImageBlock(media_type="image/jpeg", data=b64),
+    ProviderBlock(provider="anthropic", data=browser_state, text="1 tab: Checkout"),
+])
+```
+
+Screenshots add up fast. `Agent(keep_recent_images=3)` replaces all but the
+newest three images with a short stub once tool results hold twice that many
+(batched, so the prompt cache survives in between); like context clearing, a
+clear drops reasoning blocks and runs the next pass with reasoning off.
+
+### Native toolsets
+
+Some providers train their models on a toolset they define and your code
+executes - Anthropic's browser toolset (`browser_toolset_20260801`) is one
+entry that stands for ~30 member tools (`navigate`, `left_click`, ...).
+Describe the members as ordinary `ToolDef`s sharing a `Toolset`:
+
+```python
+BROWSER = Toolset(
+    name="browser",
+    native={"anthropic": {"type": "browser_toolset_20260801"}},
+    ordered=True,
+)
+ToolDef(name="navigate", description="Open a URL.", input_schema=..., toolset=BROWSER)
+```
+
+`AnthropicModel` sends the native entry once in place of the members and
+round-trips `toolset_name` on each call (`ToolUseBlock.toolset`) and its
+result - the API rejects a result that drops it. Every other client sends
+the members as plain tools, so the same source works on any provider (the
+member schemas are the neutral mirror).
+
+`ordered=True` makes a turn's calls to the toolset run one at a time, in the
+order the model emitted them, and stop at the first failure: the rest come
+back as `Toolset.not_executed` errors (Anthropic's exact text by default).
+Other tools in the same turn still run concurrently.
+
 ## The per-run context
 
 A typed, **opaque** container threaded to tools and to dynamic instructions. It

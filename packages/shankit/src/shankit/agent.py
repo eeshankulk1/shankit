@@ -58,12 +58,15 @@ from .exceptions import (
     ToolNotFoundError,
 )
 from .messages import (
+    ImageBlock,
     Message,
     ReasoningBlock,
+    TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     assistant_text,
     coerce_message,
+    content_text,
     user_message,
 )
 from .models.base import (
@@ -80,6 +83,7 @@ from .tools.aggregate import CompositeToolSource
 from .tools.base import (
     ToolDef,
     ToolResult,
+    Toolset,
     ToolSource,
     is_tool_source,
     single_task_tool_def,
@@ -107,6 +111,8 @@ _SPILL_TAIL_CHARS = 500
 # doesn't bother with results already smaller than this.
 _CLEAR_KEEP_CHARS = 200
 _CLEAR_MIN_CHARS = 1000
+# What an image dropped by keep_recent_images leaves behind.
+_IMAGE_CLEARED = "[older image removed to save context]"
 
 
 def _normalize_reasoning(value: ReasoningSpec) -> Optional[Reasoning]:
@@ -245,6 +251,13 @@ class Agent:
             pass; exceeding it raises :class:`RunTimeoutError` (``timeout``
             on the event stream). Complements ``max_iterations``: long runs
             need a time bound, not just a step bound.
+        keep_recent_images: Image-aware context clearing for tools that
+            return images (screenshots). Once tool results hold twice this
+            many images, all but the newest ``keep_recent_images`` are
+            replaced by a short text stub - in batches, so the prompt cache
+            survives the passes in between. Like ``context_clear_*``, a
+            clear drops reasoning blocks and runs the next pass with
+            reasoning off. ``None`` (default) keeps every image.
     """
 
     def __init__(
@@ -269,7 +282,10 @@ class Agent:
         context_clear_threshold_tokens: Optional[int] = None,
         context_keep_recent_results: int = 3,
         timeout_s: Optional[float] = None,
+        keep_recent_images: Optional[int] = None,
     ) -> None:
+        if keep_recent_images is not None and keep_recent_images < 1:
+            raise ValueError("keep_recent_images must be at least 1 (or None to disable)")
         if max_tool_result_chars is not None and max_tool_result_chars <= 0:
             raise ValueError("max_tool_result_chars must be positive (or None to disable)")
         if spill_threshold_chars is not None and spill_threshold_chars <= 0:
@@ -292,6 +308,7 @@ class Agent:
         self.context_clear_threshold_tokens = context_clear_threshold_tokens
         self.context_keep_recent_results = max(0, context_keep_recent_results)
         self.timeout_s = timeout_s
+        self.keep_recent_images = keep_recent_images
         self.tool_source: Optional[ToolSource] = _normalize_tools(tools)
 
     def __repr__(self) -> str:
@@ -450,6 +467,7 @@ class Agent:
             resolve_workspace(self.workspace, context),
         )
         known_tools = {t.name for t in tool_defs}
+        toolsets = {t.name: t.toolset for t in tool_defs if t.toolset is not None}
 
         output_spec: Optional[_OutputSpec] = None
         if output_type is not None and output_type is not str:
@@ -512,6 +530,10 @@ class Agent:
                 if await self._clear_context(messages, cleared, spilled, workspace):
                     reasoning_off_once = True
                 last_prompt_tokens = 0
+            if self.keep_recent_images is not None and _clear_images(
+                messages, self.keep_recent_images
+            ):
+                reasoning_off_once = True
 
             reasoning = self.reasoning
             if reasoning_off_once and reasoning is not None:
@@ -655,26 +677,9 @@ class Agent:
             # are suspended here, cancel the in-flight tool tasks instead of
             # orphaning them to run (and side-effect) in the background.
             live: asyncio.Queue[AgentEvent] = asyncio.Queue()
-            tasks = [
-                asyncio.ensure_future(
-                    self._execute_tool(
-                        tu,
-                        context,
-                        known_tools,
-                        ToolCallContext(
-                            tool_use_id=tu.id,
-                            tool_name=tu.name,
-                            step_id=sid,
-                            agent_name=self.name,
-                            emit=live.put_nowait,
-                            run_state=run_state,
-                        ),
-                        workspace,
-                        spilled,
-                    )
-                )
-                for tu, sid, _ in pending
-            ]
+            slots, tasks = self._start_batch(
+                pending, toolsets, context, known_tools, live, run_state, workspace, spilled
+            )
             gathered = asyncio.gather(*tasks)
             try:
                 while not gathered.done():
@@ -691,10 +696,11 @@ class Agent:
                             with contextlib.suppress(asyncio.CancelledError):
                                 await getter
                     if getter.done() and not getter.cancelled():
-                        yield getter.result()
+                        yield self._record_live(getter.result(), sources, artifacts)
                 while not live.empty():
-                    yield live.get_nowait()
-                results = gathered.result()
+                    yield self._record_live(live.get_nowait(), sources, artifacts)
+                gathered.result()
+                results = [r for r in slots if r is not None]
             except BaseException:
                 for task in tasks:
                     task.cancel()
@@ -707,7 +713,7 @@ class Agent:
                     ToolCallRecord(
                         tool=tool_use.name,
                         arguments=tool_use.input,
-                        content=result.content,
+                        content=content_text(result.content),
                         is_error=result.is_error,
                     )
                 )
@@ -733,6 +739,7 @@ class Agent:
                     tool_use_id=tool_use.id,
                     content=result.content,
                     is_error=result.is_error,
+                    toolset=tool_use.toolset,
                 )
 
             messages.append(Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses]))
@@ -752,6 +759,71 @@ class Agent:
         )
 
     # ------------------------------------------------------------- helpers
+
+    def _start_batch(
+        self,
+        pending: list[tuple[ToolUseBlock, str, Optional[StepInfo]]],
+        toolsets: dict[str, Toolset],
+        context: Any,
+        known_tools: set[str],
+        live: asyncio.Queue[AgentEvent],
+        run_state: dict[Any, Any],
+        workspace: Optional[Workspace],
+        spilled: dict[str, str],
+    ) -> tuple[list[Optional[ToolResult]], list[asyncio.Future[None]]]:
+        """Start one model turn's tool calls. Calls run concurrently, except
+        an ordered toolset's (see :class:`Toolset`), which run one at a time
+        in emission order and stop at the first failure. Results land in the
+        returned slots, in ``pending`` order, as the tasks finish."""
+        slots: list[Optional[ToolResult]] = [None] * len(pending)
+
+        async def run_call(index: int) -> None:
+            tu, sid, _ = pending[index]
+            call = ToolCallContext(
+                tool_use_id=tu.id,
+                tool_name=tu.name,
+                step_id=sid,
+                agent_name=self.name,
+                emit=live.put_nowait,
+                run_state=run_state,
+            )
+            slots[index] = await self._execute_tool(
+                tu, context, known_tools, call, workspace, spilled
+            )
+
+        async def run_ordered(indices: list[int], toolset: Toolset) -> None:
+            for position, index in enumerate(indices):
+                await run_call(index)
+                result = slots[index]
+                if result is not None and result.is_error:
+                    for rest in indices[position + 1 :]:
+                        slots[rest] = ToolResult(content=toolset.not_executed, is_error=True)
+                    return
+
+        groups: dict[str, tuple[Toolset, list[int]]] = {}
+        tasks: list[asyncio.Future[None]] = []
+        for index, (tu, _, _) in enumerate(pending):
+            toolset = toolsets.get(tu.name)
+            if toolset is not None and toolset.ordered:
+                groups.setdefault(toolset.name, (toolset, []))[1].append(index)
+            else:
+                tasks.append(asyncio.ensure_future(run_call(index)))
+        for toolset, indices in groups.values():
+            tasks.append(asyncio.ensure_future(run_ordered(indices, toolset)))
+        return slots, tasks
+
+    @staticmethod
+    def _record_live(
+        event: AgentEvent, sources: list[Source], artifacts: list[Artifact]
+    ) -> AgentEvent:
+        """A source or artifact a running tool emitted live (a card that must
+        show before a long tool returns) belongs to the run's results too,
+        like one returned on its ``ToolResult``."""
+        if isinstance(event, ArtifactEvent):
+            artifacts.append(event.artifact)
+        elif isinstance(event, SourceEvent):
+            sources.append(event.source)
+        return event
 
     async def _resolve_instructions(self, context: Any) -> str:
         instructions = self.instructions
@@ -816,7 +888,12 @@ class Agent:
         through unchanged — to the lossy ``max_tool_result_chars`` cap —
         when there's no workspace or the write fails."""
         threshold = self.spill_threshold_chars
-        if workspace is None or threshold is None or len(result.content) <= threshold:
+        if (
+            workspace is None
+            or threshold is None
+            or not isinstance(result.content, str)
+            or len(result.content) <= threshold
+        ):
             return result
         path = await _save_output(workspace, tool_use.name, result.content)
         if path is None:
@@ -866,15 +943,15 @@ class Agent:
         for mi, bi in candidates:
             block = messages[mi].content[bi]
             assert isinstance(block, ToolResultBlock)
-            if block.tool_use_id in cleared or len(block.content) < _CLEAR_MIN_CHARS:
+            text = content_text(block.content)
+            if block.tool_use_id in cleared or len(text) < _CLEAR_MIN_CHARS:
                 continue
             path = spilled.get(block.tool_use_id)
             if path is None and workspace is not None:
-                path = await _save_output(workspace, "cleared", block.content)
+                path = await _save_output(workspace, "cleared", text)
             where = f" Full output: {path}." if path else ""
             stub = (
-                block.content[:_CLEAR_KEEP_CHARS]
-                + f"… [older tool output cleared to save context.{where}]"
+                text[:_CLEAR_KEEP_CHARS] + f"… [older tool output cleared to save context.{where}]"
             )
             blocks = changed.setdefault(mi, list(messages[mi].content))
             blocks[bi] = block.model_copy(update={"content": stub})
@@ -884,13 +961,7 @@ class Agent:
             return False
         for mi, blocks in changed.items():
             messages[mi] = messages[mi].model_copy(update={"content": blocks})
-        # Edited history invalidates the reasoning after the edit, and a
-        # reasoning block is only valid in the exact conversation that
-        # produced it — drop them all rather than send stale ones.
-        for mi, message in enumerate(messages):
-            if any(isinstance(b, ReasoningBlock) for b in message.content):
-                blocks = [b for b in message.content if not isinstance(b, ReasoningBlock)]
-                messages[mi] = message.model_copy(update={"content": blocks})
+        _drop_reasoning(messages)
         logger.info("Agent %r: cleared %d older tool results from context.", self.name, count)
         return True
 
@@ -902,8 +973,18 @@ class Agent:
         and ``ToolError`` text — is covered uniformly. The capped content is
         what the model, the trajectory, and evals all see."""
         cap = self.max_tool_result_chars
-        if cap is None or len(result.content) <= cap:
+        if cap is None or len(content_text(result.content)) <= cap:
             return result
+        if not isinstance(result.content, str):
+            # Blocks: cap each text block (images and provider blocks are
+            # bounded by their producers).
+            capped = [
+                b.model_copy(update={"text": b.text[:cap] + f"… [truncated at {cap} characters]"})
+                if isinstance(b, TextBlock) and len(b.text) > cap
+                else b
+                for b in result.content
+            ]
+            return result.model_copy(update={"content": capped, "truncated": True})
         logger.warning(
             "Agent %r: tool %r returned %d chars; capped at max_tool_result_chars=%d.",
             self.name,
@@ -1014,6 +1095,45 @@ class _AgentToolSource(ToolSource):
             usage=result.usage,
             truncated=result.truncated,
         )
+
+
+def _drop_reasoning(messages: list[Message]) -> None:
+    """Edited history invalidates the reasoning after the edit, and a
+    reasoning block is only valid in the exact conversation that produced
+    it - drop them all rather than send stale ones."""
+    for mi, message in enumerate(messages):
+        if any(isinstance(b, ReasoningBlock) for b in message.content):
+            blocks = [b for b in message.content if not isinstance(b, ReasoningBlock)]
+            messages[mi] = message.model_copy(update={"content": blocks})
+
+
+def _clear_images(messages: list[Message], keep: int) -> bool:
+    """``keep_recent_images``: once tool results hold ``2 * keep`` images,
+    replace all but the newest ``keep`` with a stub. Rewrites ``messages``
+    in place with new Message objects (never mutating the originals);
+    returns whether anything changed."""
+    spots = [
+        (mi, bi, ci)
+        for mi, message in enumerate(messages)
+        for bi, block in enumerate(message.content)
+        if isinstance(block, ToolResultBlock) and not isinstance(block.content, str)
+        for ci, item in enumerate(block.content)
+        if isinstance(item, ImageBlock)
+    ]
+    if len(spots) < 2 * keep:
+        return False
+    changed: dict[int, list[Any]] = {}
+    for mi, bi, ci in spots[:-keep]:
+        blocks = changed.setdefault(mi, list(messages[mi].content))
+        block = blocks[bi]
+        items = list(block.content)
+        items[ci] = TextBlock(text=_IMAGE_CLEARED)
+        blocks[bi] = block.model_copy(update={"content": items})
+    for mi, blocks in changed.items():
+        messages[mi] = messages[mi].model_copy(update={"content": blocks})
+    _drop_reasoning(messages)
+    logger.info("Cleared %d older images from context.", len(spots) - keep)
+    return True
 
 
 def _step_event(step_id: str, info: StepInfo, status: str) -> StepEvent:

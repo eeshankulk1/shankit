@@ -574,3 +574,29 @@ where the original text had a gap (flagged ⚠):
       `as_tool()` sub-agents forward their steps this way, ids prefixed with
       the parent step id and `StepEvent.agent` set. `StepEvent`/`StepInfo`
       gained `agent` (additive on the wire).
+16. **Tools that drive a browser: multimodal results, native toolsets,
+    ordered batches.** Driven by throu's browser agent on Anthropic's
+    `browser_toolset_20260801`, but each piece is generic:
+    - `ToolResult.content` / `ToolResultBlock.content` may be a list of
+      `TextBlock` / `ImageBlock` / `ProviderBlock` (the Anthropic
+      tool_result shape; `str` stays the common case). A `ProviderBlock` is
+      the tool-result twin of `ReasoningBlock`: opaque `data` sent verbatim
+      by its own provider's client, a `text` fallback for every other one.
+      OpenAI Chat Completions takes only text in tool messages, so images
+      follow as one user message.
+    - A `Toolset` on member `ToolDef`s declares a provider-native entry.
+      Members stay ordinary tools (the neutral mirror, and what dispatch
+      keys on), so the seam is unchanged; only the Anthropic client folds
+      them into the native entry and round-trips `toolset_name`
+      (`ToolUseBlock.toolset`, echoed on the result).
+    - `Toolset.ordered` is the batch semantics the browser toolset
+      requires: in-order, stop at first failure, `NOT_EXECUTED` for the
+      rest. It's per toolset (not per agent) so a turn's other calls keep
+      running concurrently. Scheduling lives in `Agent._start_batch`.
+    - `keep_recent_images` is the image half of context clearing: batched
+      (clear at `2 * keep`, down to `keep`) to keep the prompt cache
+      between clears, and it reuses the reasoning-drop rule.
+    - An `ArtifactEvent` / `SourceEvent` a running tool `emit()`s now also
+      lands in `RunResult.artifacts` / `sources`: a tool can show a card
+      before it returns (throu's `browser_task` card) without the structured
+      path losing it.
