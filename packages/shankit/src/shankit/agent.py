@@ -991,7 +991,9 @@ class Agent:
                 elif len(b.text) > remaining:
                     capped.append(
                         b.model_copy(
-                            update={"text": b.text[:remaining] + f"… [truncated at {cap} characters]"}
+                            update={
+                                "text": b.text[:remaining] + f"… [truncated at {cap} characters]"
+                            }
                         )
                     )
                     remaining = 0
