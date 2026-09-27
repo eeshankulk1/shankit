@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 from conftest import text_response, tool_call_response
-from shankit import ToolError, tool
-from shankit.messages import ToolResultBlock
+from shankit import ToolError, ToolResult, tool
+from shankit.messages import TextBlock, ToolResultBlock
 
 CAP = 200
 MARKER = f"… [truncated: tool result exceeded {CAP} characters]"
@@ -37,6 +37,12 @@ def fetch_blob(size: int) -> str:
 def failing(size: int) -> str:
     """Raise a controlled error with a `size`-char message."""
     raise ToolError("e" * size)
+
+
+@tool
+def fetch_blocks() -> ToolResult:
+    """Return several under-cap text blocks whose total exceeds the cap."""
+    return ToolResult(content=[TextBlock(text="x" * 150), TextBlock(text="y" * 150)])
 
 
 def _tool_result_content(fake) -> str:
@@ -98,6 +104,25 @@ async def test_tool_error_text_is_capped_too(make_agent):
     block = next(b for b in followup.content if isinstance(b, ToolResultBlock))
     assert block.is_error is True
     assert block.content == "e" * CAP + MARKER
+    assert result.truncated is True
+
+
+async def test_multi_block_result_capped_in_aggregate(make_agent):
+    # Neither block alone exceeds CAP, but their combined text does — the
+    # cap must be spent cumulatively across blocks, not per block.
+    agent, fake = make_agent(
+        [tool_call_response("fetch_blocks", {}), text_response("done")],
+        tools=[fetch_blocks],
+        max_tool_result_chars=CAP,
+    )
+    result = await agent.run("fetch it", output_type=str)
+
+    followup = fake.requests[1].messages[-1]
+    block = next(b for b in followup.content if isinstance(b, ToolResultBlock))
+    texts = [b.text for b in block.content if isinstance(b, TextBlock)]
+    assert sum(len(t) for t in texts) <= CAP + len(f"… [truncated at {CAP} characters]")
+    assert texts[0] == "x" * 150
+    assert texts[1] == "y" * 50 + f"… [truncated at {CAP} characters]"
     assert result.truncated is True
 
 

@@ -408,3 +408,29 @@ async def test_model_response_items_and_extra_blocks_pass_through():
     assert result.trajectory[0].arguments == {"order_id": 9}  # blocks are live content
     assert result.messages[3].content == [TextBlock(text="verbatim")]
     assert result.output == "verbatim"
+
+
+def test_describe_request_handles_multimodal_tool_results() -> None:
+    from shankit.messages import ImageBlock, Message, TextBlock, ToolResultBlock
+    from shankit.models.base import ModelRequest
+    from shankit.testing import _describe_request
+
+    request = ModelRequest(
+        model="scripted",
+        messages=[
+            Message(
+                role="user",
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="t1",
+                        content=[
+                            TextBlock(text="page text"),
+                            ImageBlock(media_type="image/png", data="AAAA"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    summary = _describe_request(request)
+    assert "tool_result t1 'page text\\n[image]'" in summary

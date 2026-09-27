@@ -55,12 +55,15 @@ from .exceptions import (
 )
 from .files import Registry, default_registry, load_agent, load_agents, register
 from .messages import (
+    ImageBlock,
     Message,
+    ProviderBlock,
     ReasoningBlock,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     coerce_message,
+    content_text,
     strip_reasoning,
 )
 from .models import ModelClient, ModelRequest, ModelResponse, register_provider, resolve_model
@@ -77,6 +80,7 @@ from .tools import (
     MCPToolSource,
     ToolDef,
     ToolResult,
+    Toolset,
     ToolSource,
     tool,
 )
@@ -108,6 +112,7 @@ __all__ = [
     "ExecResult",
     "FunctionTool",
     "FunctionToolSource",
+    "ImageBlock",
     "InMemoryCheckpointer",
     "InterruptInfo",
     "LocalWorkspace",
@@ -120,6 +125,7 @@ __all__ = [
     "ModelResponse",
     "OutputValidationError",
     "PromptVariableError",
+    "ProviderBlock",
     "Reasoning",
     "ReasoningBlock",
     "Registry",
@@ -143,12 +149,14 @@ __all__ = [
     "ToolResultBlock",
     "ToolSource",
     "ToolUseBlock",
+    "Toolset",
     "Usage",
     "UsageEvent",
     "Workspace",
     "WorkspaceTools",
     "__version__",
     "coerce_message",
+    "content_text",
     "current_tool_call",
     "default_registry",
     "default_step_describer",

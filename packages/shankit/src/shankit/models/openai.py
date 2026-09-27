@@ -7,7 +7,15 @@ from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 from ..exceptions import ModelError, ShankitError
-from ..messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
+from ..messages import (
+    ContentBlock,
+    ImageBlock,
+    Message,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    content_text,
+)
 from ..usage import Usage
 from .base import (
     ForcedTool,
@@ -183,17 +191,33 @@ def to_openai_messages(system: Optional[str], messages: list[Message]) -> list[d
     for message in messages:
         if message.role == "user":
             texts: list[str] = []
+            images: list[dict[str, Any]] = []
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
-                    content = block.content
+                    content = content_text(block.content)
                     if block.is_error:
                         content = f"ERROR: {content}"
                     out.append(
                         {"role": "tool", "tool_call_id": block.tool_use_id, "content": content}
                     )
+                    if not isinstance(block.content, str):
+                        images.extend(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{b.media_type};base64,{b.data}"},
+                            }
+                            for b in block.content
+                            if isinstance(b, ImageBlock)
+                        )
                 elif isinstance(block, TextBlock):
                     texts.append(block.text)
-            if texts:
+            if images:
+                # Tool messages carry only text on Chat Completions; a tool's
+                # images follow them as a user message, in call order.
+                texts.insert(0, "Images returned by the tool calls above:")
+                parts: list[dict[str, Any]] = [{"type": "text", "text": "\n".join(texts)}]
+                out.append({"role": "user", "content": parts + images})
+            elif texts:
                 out.append({"role": "user", "content": "\n".join(texts)})
         else:
             text = "".join(b.text for b in message.content if isinstance(b, TextBlock))

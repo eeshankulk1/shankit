@@ -31,7 +31,14 @@ from typing import Any, Literal, Optional, Union
 from pydantic_core import to_jsonable_python
 
 from .agent import OUTPUT_TOOL_NAME
-from .messages import ContentBlock, ReasoningBlock, TextBlock, ToolResultBlock, ToolUseBlock
+from .messages import (
+    ContentBlock,
+    ReasoningBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    content_text,
+)
 from .models.base import (
     ModelClient,
     ModelRequest,
@@ -299,7 +306,7 @@ def _describe_block(block: Any) -> str:
         return f"tool_use {block.id} {block.name} {_clip(json.dumps(block.input, default=str))}"
     if isinstance(block, ToolResultBlock):
         error = " (error)" if block.is_error else ""
-        return f"tool_result {block.tool_use_id}{error} {_clip(block.content)}"
+        return f"tool_result {block.tool_use_id}{error} {_clip(content_text(block.content))}"
     if isinstance(block, ReasoningBlock):
         return f"reasoning {_clip(block.text)}"
     return str(getattr(block, "type", type(block).__name__))

@@ -7,19 +7,23 @@ loop and tool seam only ever see these types.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
 __all__ = [
     "ContentBlock",
+    "ImageBlock",
     "Message",
+    "ProviderBlock",
     "ReasoningBlock",
     "TextBlock",
     "ToolResultBlock",
+    "ToolResultContent",
     "ToolUseBlock",
     "assistant_text",
     "coerce_message",
+    "content_text",
     "strip_reasoning",
     "user_message",
 ]
@@ -30,18 +34,54 @@ class TextBlock(BaseModel):
     text: str
 
 
+class ImageBlock(BaseModel):
+    """An image in a tool result (e.g. a screenshot), base64-encoded."""
+
+    type: Literal["image"] = "image"
+    media_type: str = "image/png"
+    data: str
+
+
+class ProviderBlock(BaseModel):
+    """A provider-specific block in a tool result, carried opaquely.
+
+    ``provider`` names the model client that understands it; that client
+    sends ``data`` verbatim (e.g. Anthropic's ``browser_state``). Every other
+    client sends ``text`` in its place, or nothing when ``text`` is empty -
+    so a tool can return one result that reads well on any provider.
+    """
+
+    type: Literal["provider"] = "provider"
+    provider: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
+
+
+ToolResultContent = Annotated[
+    Union[TextBlock, ImageBlock, ProviderBlock],
+    Field(discriminator="type"),
+]
+
+
 class ToolUseBlock(BaseModel):
     type: Literal["tool_use"] = "tool_use"
     id: str
     name: str
     input: dict[str, Any] = Field(default_factory=dict)
+    #: The native toolset this call belongs to, as the provider named it
+    #: (e.g. Anthropic's ``toolset_name: "browser"``); round-tripped on the
+    #: call and its result.
+    toolset: Optional[str] = None
 
 
 class ToolResultBlock(BaseModel):
     type: Literal["tool_result"] = "tool_result"
     tool_use_id: str
-    content: str
+    #: Text, or a list of text / image / provider blocks.
+    content: Union[str, list[ToolResultContent]]
     is_error: bool = False
+    #: Echoes the call's ``toolset`` (providers require it back).
+    toolset: Optional[str] = None
 
 
 class ReasoningBlock(BaseModel):
@@ -91,6 +131,23 @@ def coerce_message(item: Message | dict[str, Any]) -> Message:
             return Message(role=item["role"], content=[TextBlock(text=content)])
         return Message.model_validate(item)
     raise TypeError(f"Cannot coerce {type(item).__name__} into a Message.")
+
+
+def content_text(content: Union[str, list[Any]]) -> str:
+    """A tool result's content as plain text: text blocks as-is, a provider
+    block's text fallback, and ``[image]`` for each image. For logs,
+    trajectories, and providers that take only text."""
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, TextBlock):
+            parts.append(block.text)
+        elif isinstance(block, ImageBlock):
+            parts.append("[image]")
+        elif isinstance(block, ProviderBlock) and block.text:
+            parts.append(block.text)
+    return "\n".join(parts)
 
 
 def assistant_text(message: Message) -> str:
