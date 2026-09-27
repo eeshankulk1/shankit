@@ -976,14 +976,28 @@ class Agent:
         if cap is None or len(content_text(result.content)) <= cap:
             return result
         if not isinstance(result.content, str):
-            # Blocks: cap each text block (images and provider blocks are
-            # bounded by their producers).
-            capped = [
-                b.model_copy(update={"text": b.text[:cap] + f"… [truncated at {cap} characters]"})
-                if isinstance(b, TextBlock) and len(b.text) > cap
-                else b
-                for b in result.content
-            ]
+            # Blocks: spend the cap across the text blocks in emission order
+            # (images and provider blocks are bounded by their producers, not
+            # touched here) — capping each block independently would let a
+            # result with several under-cap text blocks sail past the cap in
+            # aggregate, which is exactly the failure this guards against.
+            remaining = cap
+            capped: list[Any] = []
+            for b in result.content:
+                if not isinstance(b, TextBlock):
+                    capped.append(b)
+                elif remaining <= 0:
+                    continue
+                elif len(b.text) > remaining:
+                    capped.append(
+                        b.model_copy(
+                            update={"text": b.text[:remaining] + f"… [truncated at {cap} characters]"}
+                        )
+                    )
+                    remaining = 0
+                else:
+                    capped.append(b)
+                    remaining -= len(b.text)
             return result.model_copy(update={"content": capped, "truncated": True})
         logger.warning(
             "Agent %r: tool %r returned %d chars; capped at max_tool_result_chars=%d.",
