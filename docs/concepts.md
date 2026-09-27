@@ -333,6 +333,63 @@ model="openai:gpt-4.1"
 - Passing `model_client=` to `Agent` bypasses the registry entirely — bring your
   own client, and `model` becomes a bare model id.
 
+### Testing with a scripted model
+
+`shankit.testing.ScriptedModel` is a provider-neutral fake `ModelClient` for
+deterministic tests, with no network and no spend. It plays a script, one turn
+per model call, and records every request the loop sends.
+
+```python
+# test_support.py (pytest + pytest-asyncio, asyncio_mode = "auto")
+from shankit import Agent, tool
+from shankit.testing import ScriptedModel, ToolCall, Turn
+
+
+@tool
+def order_status(order_id: int) -> str:
+    """Look up an order's shipping status."""
+    return "shipped"
+
+
+async def test_support_agent_checks_the_order():
+    model = ScriptedModel([
+        Turn("Let me check.", tool_calls=[ToolCall("order_status", {"order_id": 7})]),
+        Turn(
+            "Order 7 has shipped.",
+            expect=lambda request: request.messages[-1].content[0].content == "shipped",
+        ),
+    ])
+    agent = Agent(name="support", model="any-id", model_client=model, tools=[order_status])
+
+    result = await agent.run("Where is order 7?", output_type=str)
+
+    assert result.output == "Order 7 has shipped."
+    assert model.requests[0].tools[0].name == "order_status"
+    model.assert_exhausted()
+```
+
+- **Turns.** A `Turn` composes any of `text` (streamed as word-sized deltas),
+  `tool_calls`, `reasoning`, `output` (the value `run(output_type=...)`
+  returns), `usage`, `stop_reason`, raw `blocks`, and `error`. Shorthands: a
+  `str` is a text-only turn, an exception is raised, and a `ModelResponse` is
+  returned verbatim.
+- **Errors.** Script `model_error_for_status("anthropic", 429)` (or `529`) for
+  exactly what the shipped clients raise on a rate limit (or an overload):
+  `run()` raises it, and `stream()` ends with a retryable `error` event.
+- **Requests.** `model.requests[i]` is a snapshot of the request `script[i]`
+  answered: messages, tools, system, model id, tool choice, and params. A
+  turn's `expect=` checks its request before the turn plays; an `assert`
+  inside it, or a `False` return, fails the test with a summary of the request.
+- **Loud failures.** A failed `expect`, or a call past the end of the script,
+  raises `ScriptFailure`. It is a `BaseException`, so neither the loop's
+  model-error handling nor a sub-agent's sanitizing can turn a broken script
+  into a calm `error` event. `assert_exhausted()` catches the opposite case:
+  turns that never ran.
+- **Behind a spec.** For code that builds its own agents,
+  `register_provider("anthropic", lambda: model)` routes every
+  `"anthropic:..."` agent to the script. One model plays one script in call
+  order, so give agents that run concurrently their own.
+
 ## The event stream
 
 `stream()` (and `run(on_event=...)`) emit a closed set of typed events. Their
