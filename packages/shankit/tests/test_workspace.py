@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 from shankit import (
     ExecResult,
+    ImageBlock,
     LocalWorkspace,
+    TextBlock,
     ToolError,
     Workspace,
     WorkspaceTools,
@@ -158,6 +162,34 @@ async def test_read_errors_are_model_visible():
         await tools.execute("Read", {"path": "nope.txt"})
     with pytest.raises(ToolError, match="binary"):
         await tools.execute("Read", {"path": "bin"})
+
+
+async def test_read_shows_an_image_as_an_image():
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    ws = MemoryWorkspace()
+    ws.files["/home/user/files/chart.png"] = png
+    # Found by its bytes, not its name.
+    ws.files["/home/user/files/photo.dat"] = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+    tools = WorkspaceTools(ws)
+    text, image = (await tools.execute("Read", {"path": "~/files/chart.png"})).content
+    assert isinstance(text, TextBlock)
+    assert "image/png" in text.text
+    assert isinstance(image, ImageBlock)
+    assert image.media_type == "image/png"
+    assert base64.b64decode(image.data) == png
+    _, jpeg = (await tools.execute("Read", {"path": "~/files/photo.dat"})).content
+    assert jpeg.media_type == "image/jpeg"
+    assert (
+        describe_workspace_step("Read", {"path": "~/files/chart.png"}).title
+        == "Looked at chart.png"
+    )
+
+
+async def test_read_refuses_an_image_too_big_to_send():
+    ws = MemoryWorkspace()
+    ws.files["/home/user/big.png"] = b"\x89PNG\r\n\x1a\n" + b"\x00" * 4_000_000
+    with pytest.raises(ToolError, match="Save a smaller copy"):
+        await WorkspaceTools(ws).execute("Read", {"path": "big.png"})
 
 
 async def test_write_then_edit():

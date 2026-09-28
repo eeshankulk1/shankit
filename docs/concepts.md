@@ -296,7 +296,10 @@ agent = Agent(
 agents converge on, as plain JSON-schema tools any provider can call (no
 Glob/Grep — `rg`/`ls` via `Bash` cover both). `Bash` drops itself
 automatically for a workspace that can't `exec`. A non-zero exit is
-information, not a tool failure; only a timeout is. `describe_workspace_step`
+information, not a tool failure; only a timeout is. `Read` of an image (PNG,
+JPEG, GIF, WebP - found by its bytes, up to 3.75 MB) returns the image itself
+as an `ImageBlock`, so an agent can look at a chart it rendered or a photo it
+was given, the way coding agents read screenshots. `describe_workspace_step`
 is a ready-made step-describer for these four tools (compose it with your own:
 `describe_workspace_step(...) or my_describer(...)`), and
 `WorkspaceTools.after_tool` is the hook for syncing files out, logging work,
