@@ -12,7 +12,9 @@ Output shapes:
   (``grep`` with no match exits 1); only a timeout or a failure to run is
   ``is_error``. Oversized output is left to the loop, which spills it to a
   file when the agent has a workspace (``Agent(spill_threshold_chars=)``).
-- ``Read``: ``cat -n``-style numbered lines, windowed by ``offset``/``limit``.
+- ``Read``: ``cat -n``-style numbered lines, windowed by ``offset``/``limit``;
+  an image (PNG, JPEG, GIF, WebP) comes back as the image itself, so the
+  agent can look at what it made (a chart, a rendered page) or was given.
 - ``Write``/``Edit``: a one-line confirmation.
 
 Subclass hooks: :meth:`WorkspaceTools.after_tool` sees every call's result
@@ -22,6 +24,7 @@ out of the workspace, record a work log, or attach artifacts.
 
 from __future__ import annotations
 
+import base64
 import inspect
 import logging
 import posixpath
@@ -29,6 +32,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Optional, Union
 
 from ..exceptions import ToolError, ToolNotFoundError
+from ..messages import ImageBlock, TextBlock, ToolResultContent
 from ..observe import StepInfo
 from ..tools.base import ToolDef, ToolResult, ToolSource
 from .base import ExecResult, Workspace, WorkspaceSpec, resolve_workspace
@@ -43,6 +47,9 @@ WORKSPACE_TOOL_NAMES = ("Bash", "Read", "Write", "Edit")
 _READ_DEFAULT_LIMIT = 2000
 _READ_MAX_LINE_CHARS = 2000
 _READ_MAX_CHARS = 100_000
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+# Providers cap an image at 5 MB base64-encoded (Anthropic); stay under it.
+_READ_MAX_IMAGE_BYTES = 3_750_000
 
 EnvSpec = Union[
     Mapping[str, str],
@@ -230,13 +237,20 @@ def _path_arg(ws: Workspace, arguments: dict[str, Any]) -> str:
     return ws.resolve(raw)
 
 
-async def _read_text(ws: Workspace, path: str) -> str:
+async def _read_bytes(ws: Workspace, path: str) -> bytes:
     try:
-        data = await ws.read_file(path)
+        return await ws.read_file(path)
     except FileNotFoundError:
         raise ToolError(f"No such file: {path}") from None
     except IsADirectoryError:
         raise ToolError(f"{path} is a directory; list it with Bash (`ls {path}`).") from None
+
+
+async def _read_text(ws: Workspace, path: str) -> str:
+    return _decode_text(path, await _read_bytes(ws, path))
+
+
+def _decode_text(path: str, data: bytes) -> str:
     if b"\x00" in data[:8192]:
         raise ToolError(
             f"{path} is a binary file ({len(data)} bytes). Inspect it with Bash "
@@ -245,9 +259,40 @@ async def _read_text(ws: Workspace, path: str) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-async def _read(ws: Workspace, arguments: dict[str, Any]) -> str:
+def _image_type(data: bytes) -> Optional[str]:
+    """The media type of an image the providers accept, by its bytes (a
+    file's name can lie)."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _read_image(path: str, data: bytes, media_type: str) -> list[ToolResultContent]:
+    if len(data) > _READ_MAX_IMAGE_BYTES:
+        raise ToolError(
+            f"{path} is too large to look at ({len(data) / 1_000_000:.1f} MB, max "
+            f"{_READ_MAX_IMAGE_BYTES / 1_000_000:.2f} MB). Save a smaller copy (resize "
+            "or recompress it) and Read that."
+        )
+    return [
+        TextBlock(text=f"{path} ({media_type}, {len(data)} bytes)"),
+        ImageBlock(media_type=media_type, data=base64.b64encode(data).decode("ascii")),
+    ]
+
+
+async def _read(ws: Workspace, arguments: dict[str, Any]) -> Union[str, list[ToolResultContent]]:
     path = _path_arg(ws, arguments)
-    text = await _read_text(ws, path)
+    data = await _read_bytes(ws, path)
+    media_type = _image_type(data)
+    if media_type is not None:
+        return _read_image(path, data, media_type)
+    text = _decode_text(path, data)
     lines = text.splitlines()
     try:
         offset = max(1, int(arguments.get("offset") or 1))
@@ -320,7 +365,8 @@ _READ_DEF = ToolDef(
     description=(
         "Read a text file from your workspace, with line numbers. Reads up to "
         f"{_READ_DEFAULT_LIMIT} lines from `offset` (1-based); page through big files "
-        "with offset/limit, or search them with Bash (rg) first."
+        "with offset/limit, or search them with Bash (rg) first. An image (PNG, "
+        "JPEG, GIF, WebP) comes back as the image itself, so you can look at it."
     ),
     input_schema={
         "type": "object",
@@ -389,7 +435,8 @@ def describe_workspace_step(
     path = str(arguments.get("path") or arguments.get("file_path") or "")
     name = posixpath.basename(path.rstrip("/")) or path or "a file"
     if tool_name == "Read":
-        return StepInfo(title=f"Read {name}", detail=path or None, phase="read")
+        verb = "Looked at" if name.lower().endswith(_IMAGE_SUFFIXES) else "Read"
+        return StepInfo(title=f"{verb} {name}", detail=path or None, phase="read")
     if tool_name == "Write":
         return StepInfo(title=f"Wrote {name}", detail=path or None, phase="write")
     if tool_name == "Edit":
