@@ -26,7 +26,9 @@ An `Agent` is configured with:
 Agent(
     name="...",                 # identity; also the default tool name via as_tool()
     model="anthropic:...",      # "provider:model_id", or a bare id with model_client=
-    instructions="...",         # static prose, or a function of the per-run context
+    instructions="...",         # static prose, or a function of the per-run context;
+                                # either may be a list of parts, stable to volatile:
+                                # Anthropic caches each part as its own block
     tools=[...],                # any mix of @tool fns, ToolSources, and sub.as_tool()
     output_type=MyModel,        # optional DEFAULT schema (not a mode flag)
     describe_step=...,          # optional observability hook

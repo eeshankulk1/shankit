@@ -294,3 +294,21 @@ async def test_run_with_list_output_type(make_agent):
     )
     result = await agent.run("go", output_type=list[Answer])
     assert result.output == [Answer(value=2, note="x")]
+
+
+async def test_instructions_in_parts_reach_the_model_as_parts(make_agent):
+    agent, fake = make_agent(
+        [final_result_response({"value": 1, "note": ""})],
+        instructions=["stable ", "volatile"],
+        output_type=Answer,
+    )
+    await agent.run("hello")
+    assert fake.requests[0].system == ["stable ", "volatile"]
+
+    dynamic, fake = make_agent(
+        [final_result_response({"value": 1, "note": ""})],
+        instructions=lambda ctx: ["a", "b"],
+        output_type=Answer,
+    )
+    await dynamic.run("hello")
+    assert fake.requests[0].system == ["a", "b"]

@@ -152,7 +152,9 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
     }
     if cache_system_and_tools:
         kwargs["cache_control"] = {"type": "ephemeral"}
-    if request.system is not None:
+    if isinstance(request.system, list):
+        kwargs["system"] = [{"type": "text", "text": part} for part in request.system if part]
+    elif request.system is not None:
         kwargs["system"] = request.system
     reasoning = request.reasoning
     forced = isinstance(request.tool_choice, ForcedTool) or request.tool_choice == "required"
