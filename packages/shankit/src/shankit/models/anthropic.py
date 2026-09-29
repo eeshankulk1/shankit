@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from ..exceptions import ModelError, ShankitError
@@ -29,7 +30,7 @@ from .base import (
     wrap_sdk_errors,
 )
 
-__all__ = ["AnthropicModel"]
+__all__ = ["AnthropicModel", "ModelRules", "model_rules"]
 
 _PROVIDER = "anthropic"
 
@@ -58,6 +59,15 @@ class AnthropicModel(ModelClient):
     parameters), and a pass that forces a tool (structured output) turns
     thinking off for that one request, since forced ``tool_choice`` and
     thinking can't be combined.
+
+    Newer models reject some of these shapes (``thinking: disabled``, a
+    ``budget_tokens`` budget, forced ``tool_choice``, ``temperature``);
+    :func:`model_rules` says what each model takes instead, so the same
+    :class:`ModelRequest` works on every model: reasoning off is
+    ``between_tools`` on Claude Sonnet 5.5, and low effort on the models
+    that always think (Claude Opus 5.5, Fable 5.1); a budget becomes
+    adaptive thinking; a forced tool goes out as ``auto`` where forcing is
+    rejected (the reasoning then stays on, with nothing to conflict with).
 
     Native toolsets: tools whose :class:`~shankit.tools.base.Toolset` has
     an ``"anthropic"`` entry are sent as that entry, once, instead of as
@@ -156,30 +166,102 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
         kwargs["system"] = [{"type": "text", "text": part} for part in request.system if part]
     elif request.system is not None:
         kwargs["system"] = request.system
+    rules = model_rules(request.model)
     reasoning = request.reasoning
-    forced = isinstance(request.tool_choice, ForcedTool) or request.tool_choice == "required"
+    choice = request.tool_choice
+    forced = rules.forced_tool_choice and (isinstance(choice, ForcedTool) or choice == "required")
     thinking_on = reasoning is not None and reasoning.enabled and not (forced and request.tools)
     if reasoning is not None:
-        if not thinking_on:
-            kwargs["thinking"] = {"type": "disabled"}
-        elif reasoning.budget_tokens is not None:
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": reasoning.budget_tokens}
+        if thinking_on:
+            if reasoning.budget_tokens is not None and rules.thinking_budget:
+                kwargs["thinking"] = {"type": "enabled", "budget_tokens": reasoning.budget_tokens}
+            else:
+                kwargs["thinking"] = {"type": "adaptive"}
+            if reasoning.effort is not None:
+                kwargs["output_config"] = {"effort": reasoning.effort}
         else:
-            kwargs["thinking"] = {"type": "adaptive"}
-        if thinking_on and reasoning.effort is not None:
-            kwargs["output_config"] = {"effort": reasoning.effort}
-    if request.temperature is not None and not thinking_on:
+            if rules.thinking_off is not None:
+                kwargs["thinking"] = {"type": rules.thinking_off}
+            if rules.off_effort is not None:
+                kwargs["output_config"] = {"effort": rules.off_effort}
+    if request.temperature is not None and not thinking_on and rules.sampling:
         kwargs["temperature"] = request.temperature
     if request.tools:
         kwargs["tools"] = _tool_params(request.tools)
-        choice = request.tool_choice
-        if isinstance(choice, ForcedTool):
+        if forced and isinstance(choice, ForcedTool):
             kwargs["tool_choice"] = {"type": "tool", "name": choice.name}
-        elif choice == "required":
+        elif forced:
             kwargs["tool_choice"] = {"type": "any"}
         elif choice == "none":
             kwargs["tool_choice"] = {"type": "none"}
     return kwargs
+
+
+@dataclass(frozen=True)
+class ModelRules:
+    """What one Claude model accepts where request shapes differ by model.
+
+    ``thinking_off`` is the ``thinking`` type ``Reasoning(enabled=False)``
+    sends, or ``None`` for a model that can't turn thinking off: the
+    parameter is left out and ``off_effort`` (if set) keeps the thinking
+    short. ``forced_tool_choice``: whether ``tool_choice`` ``tool``/``any``
+    is accepted; where it isn't, a forced request goes out as ``auto`` (the
+    agent loop's structured-output nudge asks for the tool in words).
+    ``sampling``: whether ``temperature`` is accepted. ``thinking_budget``:
+    whether a fixed ``thinking.budget_tokens`` is accepted; where it isn't,
+    a request for one gets adaptive thinking instead.
+    """
+
+    thinking_off: Optional[str] = "disabled"
+    off_effort: Optional[str] = None
+    forced_tool_choice: bool = True
+    sampling: bool = True
+    thinking_budget: bool = True
+
+
+# Every model listed below takes adaptive thinking only (no ``budget_tokens``)
+# and no sampling parameters. Some also can't turn thinking off, or can't be
+# forced to call a tool.
+_ALWAYS_THINKS = ModelRules(
+    thinking_off=None, off_effort="low", sampling=False, thinking_budget=False
+)
+_ALWAYS_THINKS_NO_FORCING = replace(_ALWAYS_THINKS, forced_tool_choice=False)
+_ADAPTIVE_ONLY = ModelRules(sampling=False, thinking_budget=False)
+
+# Most specific prefix first: "claude-opus-5" also prefixes "claude-opus-5-5".
+# A model not listed (Haiku 4.5, Sonnet 4.6 and older) takes the defaults.
+_MODEL_RULES: tuple[tuple[str, ModelRules], ...] = (
+    ("claude-fable-5-1", _ALWAYS_THINKS_NO_FORCING),
+    ("claude-mythos-5-1", _ALWAYS_THINKS_NO_FORCING),
+    ("claude-opus-5-5", _ALWAYS_THINKS_NO_FORCING),
+    # `between_tools`: no extended thinking, only short notes between tools.
+    (
+        "claude-sonnet-5-5",
+        ModelRules(
+            thinking_off="between_tools",
+            forced_tool_choice=False,
+            sampling=False,
+            thinking_budget=False,
+        ),
+    ),
+    ("claude-fable-5", _ALWAYS_THINKS),
+    ("claude-mythos-5", _ALWAYS_THINKS),
+    ("claude-opus-5", _ADAPTIVE_ONLY),
+    ("claude-sonnet-5", _ADAPTIVE_ONLY),
+    ("claude-opus-4-8", _ADAPTIVE_ONLY),
+    ("claude-opus-4-7", _ADAPTIVE_ONLY),
+)
+
+
+def model_rules(model: str) -> ModelRules:
+    """The request rules for ``model`` (a bare id, or a platform id such as
+    Bedrock's ``anthropic.claude-...``)."""
+    at = model.find("claude-")
+    name = model[at:] if at >= 0 else model
+    for prefix, rules in _MODEL_RULES:
+        if name.startswith(prefix):
+            return rules
+    return ModelRules()
 
 
 def _tool_params(tools: list[Any]) -> list[dict[str, Any]]:

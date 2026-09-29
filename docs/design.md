@@ -547,8 +547,14 @@ where the original text had a gap (flagged ⚠):
       `Agent(reasoning=True|"low".."max"|False|Reasoning)`; Anthropic maps
       to adaptive/budget/disabled thinking + `output_config.effort` (and
       drops `temperature`, and turns thinking off for a pass that forces a
-      tool); OpenAI Chat Completions maps effort to `reasoning_effort`
-      (no round-trip exists there). `strip_reasoning()` is for replaying a
+      tool). What each model accepts is one table (`anthropic.model_rules`):
+      "off" is each model's lowest setting (`between_tools`, or low effort
+      where thinking can't be disabled), a budget becomes adaptive where
+      `budget_tokens` is rejected, and a forced tool goes out as `auto`
+      where forcing is rejected (the loop's nudge asks for it in words, and
+      the pass keeps its reasoning). OpenAI Chat Completions maps effort
+      to `reasoning_effort` (no round-trip exists there).
+      `strip_reasoning()` is for replaying a
       transcript into a *different* run: providers bind reasoning to the
       exact conversation that produced it.
     - **Loop-level context clearing** (`context_clear_threshold_tokens`,
