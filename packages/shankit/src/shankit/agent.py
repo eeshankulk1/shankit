@@ -76,6 +76,7 @@ from .models.base import (
     ModelResponseComplete,
     ModelTextDelta,
     Reasoning,
+    SystemPrompt,
 )
 from .models.registry import resolve_model
 from .observe import StepDescriber, StepInfo, default_step_describer
@@ -100,7 +101,7 @@ OutputT = TypeVar("OutputT")
 
 OUTPUT_TOOL_NAME = "final_result"
 
-Instructions = Union[str, Callable[[Any], Union[str, Awaitable[str]]]]
+Instructions = Union[SystemPrompt, Callable[[Any], Union[SystemPrompt, Awaitable[SystemPrompt]]]]
 
 ReasoningSpec = Union[bool, str, Reasoning, None]
 
@@ -202,7 +203,9 @@ class Agent:
         model: ``"provider:model_id"`` spec, or a bare model id when
             ``model_client`` is given.
         instructions: Static prose, or a (sync/async) function of the opaque
-            per-run context for dynamic instructions.
+            per-run context for dynamic instructions. Either may be a list
+            of parts, ordered stable to volatile: a provider that caches
+            prompt prefixes caches each part (see ``SystemPrompt``).
         tools: Any mix of :class:`ToolSource` instances, ``@tool`` functions,
             and plain callables. Sub-agents join via ``sub.as_tool()``.
         output_type: Optional *default* output schema. Its presence lets the
@@ -825,13 +828,13 @@ class Agent:
             sources.append(event.source)
         return event
 
-    async def _resolve_instructions(self, context: Any) -> str:
+    async def _resolve_instructions(self, context: Any) -> SystemPrompt:
         instructions = self.instructions
         if callable(instructions):
             resolved = instructions(context)
             if hasattr(resolved, "__await__"):
                 resolved = await resolved  # type: ignore[misc]
-            return str(resolved)
+            return resolved if isinstance(resolved, list) else str(resolved)
         return instructions
 
     def _describe(self, tool_use: ToolUseBlock, context: Any) -> Optional[StepInfo]:

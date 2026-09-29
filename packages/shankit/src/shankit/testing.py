@@ -46,6 +46,7 @@ from .models.base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    system_text,
 )
 from .usage import Usage
 
@@ -292,7 +293,7 @@ def _describe_request(request: ModelRequest) -> str:
     tools = ", ".join(t.name for t in request.tools) or "none"
     lines = [f"The request: model={request.model!r}, tool_choice={choice_text}, tools=[{tools}]"]
     if request.system:
-        lines.append(f"  system: {_clip(request.system)}")
+        lines.append(f"  system: {_clip(system_text(request.system))}")
     for i, message in enumerate(request.messages):
         blocks = "; ".join(_describe_block(b) for b in message.content) or "(empty)"
         lines.append(f"  messages[{i}] {message.role}: {blocks}")

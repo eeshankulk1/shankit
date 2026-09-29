@@ -25,7 +25,9 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    SystemPrompt,
     map_sdk_error,
+    system_text,
     wrap_sdk_errors,
 )
 
@@ -184,10 +186,12 @@ def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     return kwargs
 
 
-def to_openai_messages(system: Optional[str], messages: list[Message]) -> list[dict[str, Any]]:
+def to_openai_messages(
+    system: Optional[SystemPrompt], messages: list[Message]
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if system:
-        out.append({"role": "system", "content": system})
+        out.append({"role": "system", "content": system_text(system)})
     for message in messages:
         if message.role == "user":
             texts: list[str] = []

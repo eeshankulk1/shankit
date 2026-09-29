@@ -44,6 +44,7 @@ __all__ = [
     "ModelTextDelta",
     "Reasoning",
     "ReasoningEffort",
+    "SystemPrompt",
     "default_stream_from_complete",
     "map_sdk_error",
     "model_error_for_status",
@@ -78,9 +79,22 @@ class Reasoning(BaseModel):
     budget_tokens: Optional[int] = None
 
 
+#: A system prompt, whole or in parts. Parts let a provider that caches
+#: prompt prefixes cache each one (Anthropic sends one text block per part);
+#: the rest join them. Joined, the parts are the prompt.
+SystemPrompt = Union[str, list[str]]
+
+
+def system_text(system: Optional[SystemPrompt]) -> str:
+    """The system prompt as one string."""
+    if system is None:
+        return ""
+    return system if isinstance(system, str) else "".join(system)
+
+
 class ModelRequest(BaseModel):
     model: str
-    system: Optional[str] = None
+    system: Optional[SystemPrompt] = None
     messages: list[Message]
     tools: list[ToolDef] = Field(default_factory=list)
     tool_choice: ToolChoice = "auto"

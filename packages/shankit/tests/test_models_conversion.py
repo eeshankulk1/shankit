@@ -50,6 +50,18 @@ def test_anthropic_kwargs_shape():
     assert "tool_choice" not in kwargs  # auto is the provider default
 
 
+def test_a_system_prompt_in_parts_is_one_block_each_or_joined():
+    parts = ["ours\n\n", "the user's\n\n", "", "now"]
+    kwargs = anthropic_kwargs(sample_request(system=parts))
+    assert kwargs["system"] == [
+        {"type": "text", "text": "ours\n\n"},
+        {"type": "text", "text": "the user's\n\n"},
+        {"type": "text", "text": "now"},
+    ]
+    messages = to_openai_messages(parts, [])
+    assert messages == [{"role": "system", "content": "ours\n\nthe user's\n\nnow"}]
+
+
 def test_anthropic_tool_choice_mapping():
     assert anthropic_kwargs(sample_request(tool_choice="required"))["tool_choice"] == {
         "type": "any"
