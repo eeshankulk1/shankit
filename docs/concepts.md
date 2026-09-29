@@ -45,7 +45,10 @@ Agent(
     spill_threshold_chars=25_000, # with a workspace, spill an oversized tool result
                                 # to a file instead of truncating it.
     reasoning=None,             # True | "low".."max" | False | Reasoning(); provider-
-                                # neutral "thinking", off by default.
+                                # neutral "thinking". None sends nothing (the model's own
+                                # default); False sends each model's lowest setting
+                                # (models that can't turn thinking off think briefly:
+                                # `anthropic.model_rules`).
     context_clear_threshold_tokens=None, # stub old tool results once a pass's prompt
                                 # crosses this many tokens (long-run context management).
     context_keep_recent_results=3, # results kept intact when clearing context.

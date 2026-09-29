@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 from shankit import ShankitError
 from shankit.messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
+from shankit.models.anthropic import _MODEL_RULES, ModelRules, model_rules, parse_message
 from shankit.models.anthropic import build_kwargs as anthropic_kwargs
-from shankit.models.anthropic import parse_message
 from shankit.models.base import ForcedTool, ModelRequest
 from shankit.models.openai import build_kwargs as openai_kwargs
 from shankit.models.openai import parse_completion, to_openai_messages
@@ -293,6 +293,204 @@ def test_anthropic_reasoning_maps_to_thinking_and_effort():
     assert off["temperature"] == 0.2
 
     assert "thinking" not in anthropic_kwargs(sample_request())
+
+
+@pytest.mark.parametrize(
+    ("model", "thinking", "effort"),
+    [
+        ("claude-sonnet-5-5", {"type": "between_tools"}, None),
+        ("anthropic.claude-sonnet-5-5", {"type": "between_tools"}, None),  # Bedrock id
+        ("claude-opus-5-5", None, "low"),
+        ("claude-fable-5-1", None, "low"),
+        ("claude-mythos-5-1", None, "low"),
+        ("claude-fable-5", None, "low"),
+        ("claude-mythos-5", None, "low"),
+        ("us.anthropic.claude-fable-5-1-v1:0", None, "low"),  # cross-region Bedrock id
+        ("claude-sonnet-5", {"type": "disabled"}, None),
+        ("claude-opus-5", {"type": "disabled"}, None),
+        ("claude-opus-4-8", {"type": "disabled"}, None),
+        ("claude-haiku-4-5", {"type": "disabled"}, None),
+    ],
+)
+def test_anthropic_reasoning_off_takes_each_models_lowest_setting(model, thinking, effort):
+    kwargs = anthropic_kwargs(sample_request(model=model, reasoning=Reasoning(enabled=False)))
+    assert kwargs.get("thinking") == thinking
+    assert kwargs.get("output_config") == ({"effort": effort} if effort else None)
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"])
+def test_anthropic_forced_tool_goes_out_as_auto_where_forcing_is_rejected(model):
+    for choice in (ForcedTool(name="t"), "required"):
+        kwargs = anthropic_kwargs(
+            sample_request(model=model, reasoning=Reasoning(effort="high"), tool_choice=choice)
+        )
+        assert "tool_choice" not in kwargs  # auto
+        # Nothing to be incompatible with, so the pass keeps its reasoning.
+        assert kwargs["thinking"] == {"type": "adaptive"}
+        assert kwargs["output_config"] == {"effort": "high"}
+    none = anthropic_kwargs(sample_request(model=model, tool_choice="none"))
+    assert none["tool_choice"] == {"type": "none"}
+
+
+@pytest.mark.parametrize(
+    ("model", "sent"),
+    [
+        ("claude-sonnet-5-5", False),
+        ("claude-sonnet-5", False),
+        ("claude-opus-4-8", False),
+        ("claude-haiku-4-5", True),
+        ("claude-sonnet-4-6", True),
+    ],
+)
+def test_anthropic_temperature_only_where_the_model_takes_it(model, sent):
+    kwargs = anthropic_kwargs(
+        sample_request(model=model, reasoning=Reasoning(enabled=False), temperature=0.0)
+    )
+    assert ("temperature" in kwargs) is sent
+
+
+def test_model_rules_prefixes_are_listed_most_specific_first():
+    # "claude-opus-5" prefixes "claude-opus-5-5": the longer one must win.
+    prefixes = [prefix for prefix, _ in _MODEL_RULES]
+    for i, prefix in enumerate(prefixes):
+        assert not any(later.startswith(prefix) for later in prefixes[i + 1 :]), prefix
+    assert model_rules("claude-fable-5-1").forced_tool_choice is False
+    assert model_rules("claude-fable-5").forced_tool_choice is True
+    assert model_rules("claude-mythos-5-1").forced_tool_choice is False
+    assert model_rules("claude-mythos-5").forced_tool_choice is True
+    assert model_rules("claude-opus-5-5").forced_tool_choice is False
+    assert model_rules("claude-opus-5").forced_tool_choice is True
+    assert model_rules("claude-sonnet-5-5").thinking_off == "between_tools"
+    assert model_rules("claude-sonnet-5").thinking_off == "disabled"
+
+
+def test_model_rules_read_platform_ids_and_default_for_the_rest():
+    sonnet = model_rules("claude-sonnet-5-5")
+    for platform_id in (
+        "anthropic.claude-sonnet-5-5",  # Bedrock
+        "global.anthropic.claude-sonnet-5-5-v1:0",  # Bedrock inference profile
+        "anthropic/claude-sonnet-5-5",  # a gateway
+    ):
+        assert model_rules(platform_id) == sonnet
+    for other in ("m", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5", ""):
+        assert model_rules(other) == ModelRules()
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"])
+def test_anthropic_forced_tool_with_no_reasoning_sends_neither(model):
+    kwargs = anthropic_kwargs(sample_request(model=model, tool_choice=ForcedTool(name="t")))
+    assert "tool_choice" not in kwargs
+    assert "thinking" not in kwargs
+    assert "output_config" not in kwargs
+
+
+def test_anthropic_forced_tool_without_tools_keeps_reasoning():
+    # No tools, so no tool_choice goes out and nothing conflicts with thinking.
+    kwargs = anthropic_kwargs(
+        sample_request(tools=[], reasoning=Reasoning(effort="high"), tool_choice="required")
+    )
+    assert "tool_choice" not in kwargs
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert kwargs["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.parametrize(
+    ("model", "thinking", "effort"),
+    [
+        ("claude-fable-5", None, "low"),  # always thinks, but takes a forced tool
+        ("claude-mythos-5", None, "low"),
+        ("claude-opus-5", {"type": "disabled"}, None),
+        ("claude-opus-4-8", {"type": "disabled"}, None),
+    ],
+)
+def test_anthropic_forced_tool_still_forced_where_accepted(model, thinking, effort):
+    kwargs = anthropic_kwargs(
+        sample_request(
+            model=model, reasoning=Reasoning(effort="high"), tool_choice=ForcedTool(name="t")
+        )
+    )
+    assert kwargs["tool_choice"] == {"type": "tool", "name": "t"}
+    # Forcing and the caller's reasoning don't combine: that pass runs at the
+    # model's lowest setting, whatever effort the caller asked for.
+    assert kwargs.get("thinking") == thinking
+    assert kwargs.get("output_config") == ({"effort": effort} if effort else None)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+        "claude-fable-5-1",
+        "claude-fable-5",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+    ],
+)
+def test_anthropic_thinking_budget_becomes_adaptive_where_it_is_rejected(model):
+    kwargs = anthropic_kwargs(sample_request(model=model, reasoning=Reasoning(budget_tokens=2048)))
+    assert kwargs["thinking"] == {"type": "adaptive"}
+    assert "output_config" not in kwargs
+    with_effort = anthropic_kwargs(
+        sample_request(model=model, reasoning=Reasoning(budget_tokens=2048, effort="low"))
+    )
+    assert with_effort["output_config"] == {"effort": "low"}
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"])
+def test_anthropic_thinking_budget_kept_where_it_is_accepted(model):
+    kwargs = anthropic_kwargs(sample_request(model=model, reasoning=Reasoning(budget_tokens=2048)))
+    assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+
+async def test_a_structured_run_on_a_model_that_rejects_forcing_is_nudged_in_words():
+    """End to end through the Anthropic client: forcing goes out as auto, so a
+    pass that answers in prose is asked for the result tool in words."""
+    from pydantic import BaseModel
+    from shankit import Agent
+    from shankit.agent import OUTPUT_TOOL_NAME
+    from shankit.models.anthropic import AnthropicModel
+
+    class Answer(BaseModel):
+        value: int
+
+    usage = SimpleNamespace(input_tokens=1, output_tokens=1)
+    replies = [
+        SimpleNamespace(
+            content=[SimpleNamespace(type="text", text="It is five.")],
+            stop_reason="end_turn",
+            usage=usage,
+        ),
+        SimpleNamespace(
+            content=[
+                SimpleNamespace(type="tool_use", id="u1", name=OUTPUT_TOOL_NAME, input={"value": 5})
+            ],
+            stop_reason="tool_use",
+            usage=usage,
+        ),
+    ]
+    sent: list[dict] = []
+
+    class Messages:
+        async def create(self, **kwargs):
+            sent.append(kwargs)
+            return replies.pop(0)
+
+    agent = Agent(
+        name="a",
+        model="claude-sonnet-5-5",
+        model_client=AnthropicModel(client=SimpleNamespace(messages=Messages())),
+        output_type=Answer,  # no real tools: the loop would force the result tool
+    )
+    result = await agent.run("what is 2 + 3?")
+    assert result.output == Answer(value=5)
+    assert len(sent) == 2
+    assert all("tool_choice" not in kwargs for kwargs in sent)  # auto, both passes
+    nudge = sent[1]["messages"][-1]
+    assert nudge["role"] == "user"
+    assert OUTPUT_TOOL_NAME in nudge["content"][0]["text"]
 
 
 def test_anthropic_forced_tool_turns_thinking_off_for_that_request():
