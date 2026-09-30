@@ -271,6 +271,85 @@ builds the roster straight from a directory of `agents/*.md` files (see
 the file format can't express, like a shared workspace, through to every
 agent it loads.
 
+### Clones: the agent splits its work across copies of itself
+
+A specialist roster pays for context isolation with lossy summaries and a
+second prompt to maintain. `CloneToolSource` gives the running agent one
+`spawn` tool instead: each part of the work runs as a **clone** — the same
+`Agent` (model, instructions, tools, reasoning), with a fresh history that
+starts from a brief the parent wrote — and the tool returns each clone's
+report. Because a clone is the same agent, its first request shares the
+parent's prompt prefix, so the provider's prompt cache serves it.
+
+```python
+from shankit import Agent, Budget, CloneToolSource
+
+assistant = Agent(
+    name="assistant",
+    model="anthropic:claude-sonnet-4-5",
+    instructions=SYSTEM,
+    tools=[
+        mail_tools,
+        ask_user_tool,
+        CloneToolSource(
+            refuse=["ask_user"],            # one voice: only the parent asks
+            budget=Budget(max_passes=15, timeout_s=300),
+            max_per_batch=5,
+        ),
+    ],
+)
+```
+
+What the source enforces as code:
+
+- **Depth** — a clone can't spawn (`max_depth=1`), refused at call time.
+- **Refusals** — `refuse` names tools a clone may not call (anything that
+  talks to the user, say). They stay in its tool list — removing them would
+  change the prompt prefix — and a call comes back as an error that points
+  the clone at its report instead.
+- **Caps** — `max_per_batch`, `max_per_run`; over a cap the call is refused
+  whole so the model regroups.
+- **Budgets** — each clone runs under a `Budget` (passes, wall clock, cost).
+  One that reaches it gets a last pass with tools off and reports what it
+  has (`partial`).
+- **Attribution** — a clone's steps carry `worker=<clone id>` (separate from
+  `agent`, which names a delegated sub-agent or app), and its lifecycle is a
+  `worker` event in the parent's stream. Calls from one model response share
+  a batch id.
+
+Hooks shape a clone without breaking the cache: `prompt` (its first message
+from the brief — a preamble, say), `child_context` (its per-run context),
+`configure` (the agent it runs as — `agent.copy(timeout_s=None)`; a
+different model loses the shared cache), `clone_properties` (extra fields per
+clone).
+
+**Where clones run** is a seam, `CloneHost`. The default `InlineCloneHost`
+runs a batch concurrently inside the spawn call and rolls the clones' usage,
+sources and artifacts into it. An application with a durable runner writes
+its own host: start the clones there, wait as long as the parent can afford,
+return `background` outcomes for the rest, and deliver their reports later
+itself (`rolls_up = False` when it meters clone work separately).
+`run_clone()` runs one clone to its outcome either way, including resuming
+one from its saved transcript.
+
+### Run control
+
+`RunControl`, passed to `run()`, `stream()` or `resume()`, steers a run from
+outside it — always at the loop's boundaries, never mid-call:
+
+| | |
+|---|---|
+| `cancel()` | Ends the run before its next model pass, or before the tools of a pass run; `done.stopped == "cancelled"`, usage and transcript kept |
+| `send(text)` | Delivered with the next tool results, or as one more turn if the model was finishing |
+| `budget=Budget(...)` | Soft limits (passes, wall clock, priced cost): a last pass with tools off, then `stopped == "budget"` |
+| `refuse=fn` | A call-time veto `(name, args) -> text or None`; the tool list is unchanged |
+| `checkpoint=fn` | Called with the transcript at every boundary; `agent.resume(transcript)` continues it, closing any call left in flight with an "interrupted" result |
+| `worker`, `depth`, `parent` | Who this run is among several; the spawn tool's depth guard reads `depth`; cancelling `parent` cancels this run |
+
+`cancel()` and `send()` are thread-safe. `agent.copy(**changes)` makes a
+variant (a longer timeout for background work) that shares everything it
+doesn't change.
+
 For the case agents-as-tools does _not_ cover — when **code, not the model**,
 controls flow — reach for the experimental [network](durability.md#networks-experimental).
 
@@ -407,10 +486,11 @@ generates from.
 | `event.type` | Payload |
 |---|---|
 | `text_delta` | `text` — an incremental chunk of the assistant's reply |
-| `step` | `id`, `title`, `detail`, `phase`, `status` (`running`/`done`/`error`), `agent` — user-facing narration; `agent` names the delegated sub-agent the step belongs to, `None` for the running agent itself |
+| `step` | `id`, `title`, `detail`, `phase`, `status` (`running`/`done`/`error`), `agent`, `worker` — user-facing narration; `agent` names the delegated sub-agent the step belongs to, `None` for the running agent itself; `worker` is the clone that took it, `None` for the top-level run |
+| `worker` | `id`, `title`, `status` (`running`, then `done`/`partial`/`failed`/`stopped`/`background`), `batch` — a clone's lifecycle in the stream of the run that spawned it |
 | `source` | `source` — a citation surfaced by a tool |
 | `usage` | `usage` — token usage for one model pass or sub-agent (they sum to `done.usage`) |
-| `done` | `text`, `output`, `usage`, `truncated` — terminal success. `messages` also rides the event (every message the run added) but is in-process only — excluded from serialization, never on the SSE wire or in the generated TS types |
+| `done` | `text`, `output`, `usage`, `truncated`, `stopped` (`budget`/`cancelled` when a `RunControl` ended it early) — terminal success. `messages` also rides the event (every message the run added) but is in-process only — excluded from serialization, never on the SSE wire or in the generated TS types |
 | `error` | `message`, `code`, `retryable` — terminal failure (human-safe message) |
 
 A stream **always** terminates with exactly one of `done` or `error`, so an SSE

@@ -61,6 +61,9 @@ export interface TextDeltaEvent {
  * a delegated sub-agent (its steps are forwarded into the parent run
  * with ids prefixed by the parent step's id) or whatever the
  * step-describer names; ``None`` means the running agent itself.
+ * ``worker`` is separate from ``agent``: the id of the run that took the
+ * step when several copies of one agent work at once (a clone, see
+ * ``WorkerEvent``); ``None`` for the top-level run.
  */
 export interface StepEvent {
   type: "step";
@@ -70,6 +73,7 @@ export interface StepEvent {
   phase: string | null;
   status: "running" | "done" | "error";
   agent: string | null;
+  worker: string | null;
 }
 
 /**
@@ -101,6 +105,24 @@ export interface UsageEvent {
 }
 
 /**
+ * A clone's lifecycle in the stream of the run that spawned it.
+ *
+ * ``id`` is the clone's worker id (its steps carry it as
+ * ``StepEvent.worker``); ``batch`` groups the clones one model response
+ * spawned. ``status`` is ``running`` when it starts, then one of
+ * ``done``, ``partial`` (it reached its budget and reported what it had),
+ * ``failed``, ``stopped`` (cancelled), or ``background`` (still running
+ * when the spawning call returned; its host delivers the report later).
+ */
+export interface WorkerEvent {
+  type: "worker";
+  id: string;
+  title: string;
+  status: "running" | "done" | "partial" | "failed" | "stopped" | "background";
+  batch: string | null;
+}
+
+/**
  * Terminal event: the run failed.
  *
  * ``message`` is human-safe and may be shown to end users. ``code`` says
@@ -129,7 +151,9 @@ export interface ErrorEvent {
  * ``output_type=str`` runs, the final pass's text); for a plain streamed
  * conversation it is ``None``. ``truncated`` is true if any model pass of
  * the run (or of a sub-agent run reporting through the tool seam) stopped
- * at the token limit, meaning the result may be incomplete.
+ * at the token limit, meaning the result may be incomplete. ``stopped``
+ * says the run ended early by :class:`~shankit.RunControl`: ``"budget"``
+ * (it reached its budget and wrote a last report) or ``"cancelled"``.
  */
 export interface DoneEvent {
   type: "done";
@@ -137,10 +161,11 @@ export interface DoneEvent {
   output: unknown;
   usage: Usage;
   truncated: boolean;
+  stopped: "budget" | "cancelled" | null;
 }
 
 /** Every event a shankit agent stream can emit. A stream ends with
  * exactly one terminal event: `done` or `error`. */
-export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | ArtifactEvent | UsageEvent | ErrorEvent | DoneEvent;
+export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | ArtifactEvent | UsageEvent | WorkerEvent | ErrorEvent | DoneEvent;
 
 export type AgentEventType = AgentEvent["type"];

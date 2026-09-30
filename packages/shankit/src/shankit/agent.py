@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import re
 import time
@@ -25,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import (
     Any,
     Generic,
+    Literal,
     Optional,
     TypeVar,
     Union,
@@ -36,6 +38,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from . import _tracing
 from ._calls import ToolCallContext, _set_current, current_tool_call
 from ._serialize import dump_str
+from .control import RunControl
 from .events import (
     AgentEvent,
     Artifact,
@@ -100,10 +103,14 @@ logger = logging.getLogger("shankit")
 OutputT = TypeVar("OutputT")
 
 OUTPUT_TOOL_NAME = "final_result"
+_OUTPUT_NUDGE = f"Provide the final result now by calling the `{OUTPUT_TOOL_NAME}` tool."
 
 Instructions = Union[SystemPrompt, Callable[[Any], Union[SystemPrompt, Awaitable[SystemPrompt]]]]
 
 ReasoningSpec = Union[bool, str, Reasoning, None]
+
+#: Why a :class:`~shankit.RunControl` ended a run early.
+StopReason = Literal["budget", "cancelled"]
 
 # Spilled results keep a head and a tail of the output inline.
 _SPILL_HEAD_CHARS = 1500
@@ -160,6 +167,9 @@ class RunResult(Generic[OutputT]):
     truncated: bool = False
     #: The run's own transcript (see ``DoneEvent.messages``).
     messages: list[Message] = field(default_factory=list)
+    #: Why a :class:`~shankit.RunControl` ended the run early:
+    #: ``"budget"`` or ``"cancelled"`` (``None``: it finished).
+    stopped: Optional[StopReason] = None
 
 
 class _OutputSpec:
@@ -287,6 +297,9 @@ class Agent:
         timeout_s: Optional[float] = None,
         keep_recent_images: Optional[int] = None,
     ) -> None:
+        # What copy() rebuilds from (so a copy is validated and normalized
+        # exactly as the original was).
+        self._init_kwargs = {k: v for k, v in locals().items() if k != "self"}
         if keep_recent_images is not None and keep_recent_images < 1:
             raise ValueError("keep_recent_images must be at least 1 (or None to disable)")
         if max_tool_result_chars is not None and max_tool_result_chars <= 0:
@@ -328,6 +341,7 @@ class Agent:
         output_type: type[OutputT],
         on_event: Optional[Callable[[AgentEvent], None]] = None,
         history: Optional[Sequence[Any]] = None,
+        control: Optional[RunControl] = None,
     ) -> RunResult[OutputT]: ...
     @overload
     async def run(
@@ -337,6 +351,7 @@ class Agent:
         context: Any = None,
         on_event: Optional[Callable[[AgentEvent], None]] = None,
         history: Optional[Sequence[Any]] = None,
+        control: Optional[RunControl] = None,
     ) -> RunResult[Any]: ...
 
     async def run(
@@ -347,6 +362,7 @@ class Agent:
         output_type: Optional[type] = None,
         on_event: Optional[Callable[[AgentEvent], None]] = None,
         history: Optional[Sequence[Any]] = None,
+        control: Optional[RunControl] = None,
     ) -> RunResult[Any]:
         """Run to a typed, validated deliverable.
 
@@ -358,11 +374,97 @@ class Agent:
         sync callable, and an exception it raises aborts the run. ``history``
         is prior conversation turns (``Message`` objects or
         ``{"role", "content"}`` dicts) prepended before this call's
-        ``prompt``.
+        ``prompt``. ``control`` steers the run from outside it (cancel,
+        messages, a budget, call-time refusals, checkpoints; see
+        :class:`~shankit.RunControl`).
 
         A failed model provider call raises :class:`shankit.ModelError`
         (check ``retryable`` for backoff) — never a provider SDK exception.
         """
+        return await self._run_structured(
+            prompt,
+            context=context,
+            output_type=output_type,
+            on_event=on_event,
+            history=history,
+            control=control,
+        )
+
+    async def resume(
+        self,
+        transcript: Sequence[Any],
+        *,
+        context: Any = None,
+        output_type: Optional[type] = None,
+        on_event: Optional[Callable[[AgentEvent], None]] = None,
+        control: Optional[RunControl] = None,
+        interrupted: str = (
+            "Interrupted by a restart before this finished. Check whether it "
+            "happened before doing it again."
+        ),
+    ) -> RunResult[Any]:
+        """Continue a structured run from its saved transcript (what
+        ``RunControl.checkpoint`` was given, or ``RunResult.messages``).
+
+        A tool call the transcript shows in flight (an assistant pass whose
+        results never landed) gets an error result saying ``interrupted``,
+        so the model checks before redoing a side effect. A transcript that
+        already ends in the model's final answer returns it without another
+        model call. Step ids continue the original run's numbering; the
+        returned ``usage`` covers only what the resume itself spent.
+        """
+        messages = _close_interrupted([coerce_message(m) for m in transcript], interrupted)
+        if not messages:
+            raise ShankitError("Agent.resume() needs a non-empty transcript.")
+        effective = output_type or self.output_type
+        last = messages[-1]
+        ended = last.role == "assistant" and not any(
+            isinstance(b, ToolUseBlock) for b in last.content
+        )
+        if effective is str and ended:
+            # The final answer already landed.
+            final = assistant_text(last)
+            return RunResult(output=final, text=final, usage=Usage(), messages=messages)
+        if effective not in (None, str):
+            recorded = _recorded_output(messages, _OutputSpec(effective))
+            if recorded is not None:
+                return RunResult(output=recorded[0], text="", usage=Usage(), messages=messages)
+            if ended:
+                # Prose where the result was due: ask for it, as the loop would.
+                messages.append(user_message(_OUTPUT_NUDGE))
+        return await self._run_structured(
+            None,
+            context=context,
+            output_type=output_type,
+            on_event=on_event,
+            history=messages,
+            control=control,
+        )
+
+    def copy(self, **changes: Any) -> Agent:
+        """A copy of this agent with some constructor arguments changed
+        (``agent.copy(model="...", timeout_s=None)``). A copy that keeps the
+        tools shares the original's tool source, and one that keeps the
+        model, instructions, tools and reasoning sends the same prompt
+        prefix."""
+        unknown = set(changes) - set(self._init_kwargs)
+        if unknown:
+            raise TypeError(f"Agent.copy() got unknown arguments: {sorted(unknown)}")
+        clone = Agent(**{**self._init_kwargs, **changes})
+        if "tools" not in changes:
+            clone.tool_source = self.tool_source
+        return clone
+
+    async def _run_structured(
+        self,
+        prompt: Optional[str],
+        *,
+        context: Any,
+        output_type: Optional[type],
+        on_event: Optional[Callable[[AgentEvent], None]],
+        history: Optional[Sequence[Any]],
+        control: Optional[RunControl],
+    ) -> RunResult[Any]:
         effective = output_type or self.output_type
         if effective is None:
             raise ShankitError(
@@ -383,6 +485,7 @@ class Agent:
                 sources=sources,
                 artifacts=artifacts,
                 history=history,
+                control=control,
             ):
                 if on_event is not None:
                     on_event(event)
@@ -396,6 +499,7 @@ class Agent:
                         artifacts=artifacts,
                         truncated=event.truncated,
                         messages=event.messages,
+                        stopped=event.stopped,
                     )
         raise ShankitError("Agent loop ended without a result.")  # pragma: no cover
 
@@ -407,6 +511,7 @@ class Agent:
         *,
         context: Any = None,
         history: Optional[Sequence[Any]] = None,
+        control: Optional[RunControl] = None,
     ) -> AsyncIterator[AgentEvent]:
         """Run as a live conversation, yielding the typed event stream.
 
@@ -415,6 +520,8 @@ class Agent:
         exceptions propagate after an ``error`` event is emitted.
         ``history`` is prior conversation turns (``Message`` objects or
         ``{"role", "content"}`` dicts) prepended before ``prompt``.
+        ``control`` steers the run from outside it (see
+        :class:`~shankit.RunControl`).
         """
         trajectory: list[ToolCallRecord] = []
         sources: list[Source] = []
@@ -430,6 +537,7 @@ class Agent:
                     sources=sources,
                     artifacts=artifacts,
                     history=history,
+                    control=control,
                 ):
                     yield event
             except ShankitError as exc:
@@ -442,7 +550,7 @@ class Agent:
 
     async def _loop(
         self,
-        prompt: str,
+        prompt: Optional[str],
         *,
         context: Any,
         output_type: Optional[type],
@@ -451,9 +559,13 @@ class Agent:
         sources: list[Source],
         artifacts: list[Artifact],
         history: Optional[Sequence[Any]] = None,
+        control: Optional[RunControl] = None,
     ) -> AsyncIterator[AgentEvent]:
+        """The loop. ``prompt`` ``None`` continues ``history`` as the run's
+        own transcript (:meth:`resume`) instead of starting a new turn."""
         client, model_id = resolve_model(self.model, self.model_client)
-        deadline = time.monotonic() + self.timeout_s if self.timeout_s is not None else None
+        started = time.monotonic()
+        deadline = started + self.timeout_s if self.timeout_s is not None else None
 
         # Instructions, the tool catalog, and the workspace are independent;
         # resolving them concurrently matters when they hit the network
@@ -484,8 +596,11 @@ class Agent:
             tool_defs = [*tool_defs, output_spec.tool_def]
 
         messages: list[Message] = [coerce_message(m) for m in history or ()]
-        run_start = len(messages)
-        messages.append(user_message(prompt))
+        if prompt is None:
+            run_start = 0
+        else:
+            run_start = len(messages)
+            messages.append(user_message(prompt))
         total_usage = Usage()
         texts: list[str] = []
         truncated = False
@@ -500,7 +615,19 @@ class Agent:
         # [] for certain inputs). Forcing also saves that wasted first call.
         # Agents WITH tools keep "auto" — they must search before answering.
         always_force_output = output_spec is not None and not known_tools
-        step_counter = 0
+        # A resumed run keeps numbering its passes and steps where the
+        # original left off, so step ids stay unique across the two.
+        passes = step_counter = 0
+        for m in messages[run_start:]:
+            if m.role == "assistant":
+                passes += 1
+                step_counter += sum(
+                    1
+                    for b in m.content
+                    if isinstance(b, ToolUseBlock) and b.name != OUTPUT_TOOL_NAME
+                )
+        stopped: Optional[StopReason] = None
+        winding_down = False
         # Shared by every tool call of this run (see ToolCallContext).
         run_state: dict[Any, Any] = {}
         # Context clearing bookkeeping: results already stubbed, where
@@ -519,9 +646,39 @@ class Agent:
                 usage=total_usage,
                 truncated=truncated,
                 messages=list(messages[run_start:]),
+                stopped=stopped,
             )
 
+        save_checkpoint = control.checkpoint if control is not None else None
+
+        async def checkpoint() -> None:
+            if save_checkpoint is not None:
+                saved = save_checkpoint(messages[run_start:])
+                if inspect.isawaitable(saved):
+                    await saved
+
         for _ in range(self.max_iterations):
+            if control is not None:
+                if control.cancelled:
+                    stopped = "cancelled"
+                    yield done_event(None)
+                    return
+                notes = control.drain()
+                if notes:
+                    _append_user_text(messages, "\n\n".join(notes))
+                budget = control.budget
+                limit = (
+                    budget.reached(
+                        passes=passes, elapsed_s=time.monotonic() - started, usage=total_usage
+                    )
+                    if budget is not None
+                    else None
+                )
+                if budget is not None and limit:
+                    # One last pass, tools off, to report what it has.
+                    logger.info("Agent %r: %s budget reached; winding down.", self.name, limit)
+                    winding_down = True
+                    _append_user_text(messages, budget.notice)
             if deadline is not None and time.monotonic() > deadline:
                 raise RunTimeoutError(
                     f"Agent {self.name!r} ran past its {self.timeout_s:g}s time limit."
@@ -542,16 +699,20 @@ class Agent:
             if reasoning_off_once and reasoning is not None:
                 reasoning = Reasoning(enabled=False)
             reasoning_off_once = False
+            if winding_down:
+                tool_choice: Any = (
+                    ForcedTool(name=OUTPUT_TOOL_NAME) if output_spec is not None else "none"
+                )
+            elif force_output or always_force_output:
+                tool_choice = ForcedTool(name=OUTPUT_TOOL_NAME)
+            else:
+                tool_choice = "auto"
             request = ModelRequest(
                 model=model_id,
                 system=system or None,
                 messages=messages,
                 tools=tool_defs,
-                tool_choice=(
-                    ForcedTool(name=OUTPUT_TOOL_NAME)
-                    if (force_output or always_force_output)
-                    else "auto"
-                ),
+                tool_choice=tool_choice,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 reasoning=reasoning,
@@ -585,6 +746,7 @@ class Agent:
                 )
                 raise ModelError("The model call failed.") from exc
 
+            passes += 1
             total_usage.add(response.usage)
             yield UsageEvent(usage=response.usage)
             last_prompt_tokens = (
@@ -610,6 +772,27 @@ class Agent:
 
             tool_uses = [b for b in assistant.content if isinstance(b, ToolUseBlock)]
 
+            if winding_down:
+                # The budget's last pass is the report, whatever it holds.
+                stopped = "budget"
+                output = None
+                for tu in tool_uses:
+                    if output_spec is not None and tu.name == OUTPUT_TOOL_NAME:
+                        with contextlib.suppress(ValidationError):
+                            output = output_spec.validate(tu.input)
+                if output_type is str:
+                    output = turn_text
+                if tool_uses:
+                    # Keep the transcript valid for a later continuation.
+                    messages.append(_unrun_results(tool_uses, "Not run: out of budget."))
+                yield done_event(output)
+                return
+
+            if not tool_uses and control is not None and control.has_messages:
+                # A message arrived while the model wrote what would have
+                # been its answer: it gets one more pass to act on it.
+                continue
+
             if not tool_uses:
                 if output_spec is not None:
                     if output_attempts >= self.output_retries:
@@ -618,12 +801,7 @@ class Agent:
                             f"after {output_attempts} retries."
                         )
                     output_attempts += 1
-                    messages.append(
-                        user_message(
-                            f"Provide the final result now by calling the "
-                            f"`{OUTPUT_TOOL_NAME}` tool."
-                        )
-                    )
+                    messages.append(user_message(_OUTPUT_NUDGE))
                     force_output = True
                     continue
                 # For output_type=str the deliverable is the final pass —
@@ -633,6 +811,16 @@ class Agent:
                 output = turn_text if output_type is str else None
                 yield done_event(output)
                 return
+
+            if control is not None and control.cancelled:
+                # Stopped between the model's answer and its tools: none of
+                # them run, and the transcript stays valid to continue.
+                messages.append(_unrun_results(tool_uses, "Not run: stopped."))
+                stopped = "cancelled"
+                yield done_event(None)
+                return
+
+            await checkpoint()
 
             blocks_by_id: dict[str, ToolResultBlock] = {}
             finished: Optional[tuple[Any]] = None  # 1-tuple so None output is representable
@@ -681,7 +869,16 @@ class Agent:
             # orphaning them to run (and side-effect) in the background.
             live: asyncio.Queue[AgentEvent] = asyncio.Queue()
             slots, tasks = self._start_batch(
-                pending, toolsets, context, known_tools, live, run_state, workspace, spilled
+                pending,
+                toolsets,
+                context,
+                known_tools,
+                live,
+                run_state,
+                workspace,
+                spilled,
+                pass_index=passes,
+                control=control,
             )
             gathered = asyncio.gather(*tasks)
             try:
@@ -746,6 +943,7 @@ class Agent:
                 )
 
             messages.append(Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses]))
+            await checkpoint()
 
             if finished is not None:
                 yield done_event(finished[0])
@@ -773,6 +971,9 @@ class Agent:
         run_state: dict[Any, Any],
         workspace: Optional[Workspace],
         spilled: dict[str, str],
+        *,
+        pass_index: int = 0,
+        control: Optional[RunControl] = None,
     ) -> tuple[list[Optional[ToolResult]], list[asyncio.Future[None]]]:
         """Start one model turn's tool calls. Calls run concurrently, except
         an ordered toolset's (see :class:`Toolset`), which run one at a time
@@ -789,6 +990,9 @@ class Agent:
                 agent_name=self.name,
                 emit=live.put_nowait,
                 run_state=run_state,
+                pass_index=pass_index,
+                agent=self,
+                control=control,
             )
             slots[index] = await self._execute_tool(
                 tu, context, known_tools, call, workspace, spilled
@@ -861,6 +1065,16 @@ class Agent:
             return ToolResult(
                 content=f"No tool named {tool_use.name!r} is available.", is_error=True
             )
+        control = call.control if call is not None else None
+        if control is not None and control.refuse is not None:
+            try:
+                refusal = control.refuse(tool_use.name, tool_use.input)
+            except Exception:
+                # A veto that fails closed: the call doesn't run.
+                logger.exception("RunControl.refuse failed for tool %r", tool_use.name)
+                refusal = f"The tool {tool_use.name!r} isn't available right now."
+            if refusal:
+                return ToolResult(content=refusal, is_error=True)
         # Runs inside this call's own task, so the context var is scoped to
         # it — concurrent calls each see their own ToolCallContext.
         _set_current(call)
@@ -1163,6 +1377,56 @@ def _step_event(step_id: str, info: StepInfo, status: str) -> StepEvent:
         phase=info.phase,
         status=status,  # type: ignore[arg-type]
         agent=info.agent,
+    )
+
+
+def _append_user_text(messages: list[Message], text: str) -> None:
+    """Add ``text`` for the model after the last message: into it when it
+    is already the user's (a pass's tool results, or the prompt), else as a
+    new user turn. Never mutates the message objects themselves."""
+    if messages and messages[-1].role == "user":
+        last = messages[-1]
+        messages[-1] = last.model_copy(update={"content": [*last.content, TextBlock(text=text)]})
+    else:
+        messages.append(user_message(text))
+
+
+def _recorded_output(messages: list[Message], spec: _OutputSpec) -> Optional[tuple[Any]]:
+    """The validated result of a transcript that ends with the structured
+    result recorded (its call answered "Final result recorded."), as a
+    1-tuple, else ``None``."""
+    if len(messages) < 2 or messages[-1].role != "user" or messages[-2].role != "assistant":
+        return None
+    for use in messages[-2].content:
+        if not isinstance(use, ToolUseBlock) or use.name != OUTPUT_TOOL_NAME:
+            continue
+        answered = any(
+            isinstance(b, ToolResultBlock) and b.tool_use_id == use.id and not b.is_error
+            for b in messages[-1].content
+        )
+        if answered:
+            with contextlib.suppress(ValidationError):
+                return (spec.validate(use.input),)
+    return None
+
+
+def _close_interrupted(messages: list[Message], text: str) -> list[Message]:
+    """A transcript whose last pass called tools that never returned gets
+    an error result for each, so the conversation is valid to continue."""
+    if not messages or messages[-1].role != "assistant":
+        return messages
+    in_flight = [b for b in messages[-1].content if isinstance(b, ToolUseBlock)]
+    return [*messages, _unrun_results(in_flight, text)] if in_flight else messages
+
+
+def _unrun_results(tool_uses: Sequence[ToolUseBlock], text: str) -> Message:
+    """An error result saying ``text`` for each of ``tool_uses`` that never
+    ran: every tool call must be answered for the transcript to be valid."""
+    return Message(
+        role="user",
+        content=[
+            ToolResultBlock(tool_use_id=tu.id, content=text, is_error=True) for tu in tool_uses
+        ],
     )
 
 

@@ -28,6 +28,7 @@ __all__ = [
     "StepEvent",
     "TextDeltaEvent",
     "UsageEvent",
+    "WorkerEvent",
     "agent_event_adapter",
     "error_event_for",
 ]
@@ -77,6 +78,9 @@ class StepEvent(BaseModel):
     a delegated sub-agent (its steps are forwarded into the parent run
     with ids prefixed by the parent step's id) or whatever the
     step-describer names; ``None`` means the running agent itself.
+    ``worker`` is separate from ``agent``: the id of the run that took the
+    step when several copies of one agent work at once (a clone, see
+    ``WorkerEvent``); ``None`` for the top-level run.
     """
 
     type: Literal["step"] = "step"
@@ -86,6 +90,25 @@ class StepEvent(BaseModel):
     phase: Optional[str] = None
     status: Literal["running", "done", "error"] = "running"
     agent: Optional[str] = None
+    worker: Optional[str] = None
+
+
+class WorkerEvent(BaseModel):
+    """A clone's lifecycle in the stream of the run that spawned it.
+
+    ``id`` is the clone's worker id (its steps carry it as
+    ``StepEvent.worker``); ``batch`` groups the clones one model response
+    spawned. ``status`` is ``running`` when it starts, then one of
+    ``done``, ``partial`` (it reached its budget and reported what it had),
+    ``failed``, ``stopped`` (cancelled), or ``background`` (still running
+    when the spawning call returned; its host delivers the report later).
+    """
+
+    type: Literal["worker"] = "worker"
+    id: str
+    title: str
+    status: Literal["running", "done", "partial", "failed", "stopped", "background"]
+    batch: Optional[str] = None
 
 
 class SourceEvent(BaseModel):
@@ -143,7 +166,9 @@ class DoneEvent(BaseModel):
     ``output_type=str`` runs, the final pass's text); for a plain streamed
     conversation it is ``None``. ``truncated`` is true if any model pass of
     the run (or of a sub-agent run reporting through the tool seam) stopped
-    at the token limit, meaning the result may be incomplete.
+    at the token limit, meaning the result may be incomplete. ``stopped``
+    says the run ended early by :class:`~shankit.RunControl`: ``"budget"``
+    (it reached its budget and wrote a last report) or ``"cancelled"``.
     """
 
     type: Literal["done"] = "done"
@@ -151,6 +176,7 @@ class DoneEvent(BaseModel):
     output: Any = None
     usage: Usage = Field(default_factory=Usage)
     truncated: bool = False
+    stopped: Optional[Literal["budget", "cancelled"]] = None
     #: The run's own transcript: every message it added to the
     #: conversation, starting with the prompt — assistant passes (text,
     #: tool calls, reasoning) and tool results. Pass it back as ``history``
@@ -166,6 +192,7 @@ AgentEvent = Annotated[
         SourceEvent,
         ArtifactEvent,
         UsageEvent,
+        WorkerEvent,
         ErrorEvent,
         DoneEvent,
     ],
