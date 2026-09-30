@@ -163,6 +163,8 @@ oncall = Agent(
 )
 ```
 
+Or the agent splits its own work: `CloneToolSource` gives it a `spawn` tool that runs each part as a **clone** — the same agent with a fresh history seeded by a brief, so it shares the parent's prompt cache — under code-enforced depth, caps, budgets and call-time refusals, on a host you can swap for your own durable runner. `RunControl` cancels, messages, budgets and checkpoints any run from outside it ([concepts](docs/concepts.md#clones-the-agent-splits-its-work-across-copies-of-itself)).
+
 When **code**, not the model, must control flow — deterministic routing, cycles, shared state, and durable human-in-the-loop pauses — there's an experimental router-driven [network](docs/durability.md#networks-experimental). The state the router reads _is_ what the checkpointer persists, so approval pauses fall out of the design rather than being bolted on.
 
 ## Connectors: the opt-in integration layer

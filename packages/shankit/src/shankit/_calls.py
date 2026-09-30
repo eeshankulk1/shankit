@@ -14,7 +14,10 @@ from __future__ import annotations
 import contextvars
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .control import RunControl
 
 __all__ = ["ToolCallContext", "current_tool_call"]
 
@@ -34,6 +37,11 @@ class ToolCallContext:
         run_state: A dict shared by every tool call of this run and
             discarded with it. Key your entries by something unique to
             your source (e.g. ``id(self)``).
+        pass_index: Which model pass of the run made the call (1-based):
+            calls with the same index came from one model response.
+        agent: The :class:`~shankit.Agent` whose loop is executing the call
+            (what :class:`~shankit.CloneToolSource` clones).
+        control: The run's :class:`~shankit.RunControl`, if it has one.
     """
 
     tool_use_id: str
@@ -42,6 +50,9 @@ class ToolCallContext:
     agent_name: str
     emit: Callable[[Any], None]
     run_state: dict[Any, Any] = field(default_factory=dict)
+    pass_index: int = 0
+    agent: Any = None
+    control: Optional[RunControl] = None
 
 
 _CURRENT: contextvars.ContextVar[Optional[ToolCallContext]] = contextvars.ContextVar(

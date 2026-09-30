@@ -23,6 +23,7 @@ Public surface (design §11):
 from . import evals
 from ._calls import ToolCallContext, current_tool_call
 from .agent import Agent, RunResult, ToolCallRecord
+from .control import Budget, RunControl
 from .durability import (
     Checkpoint,
     Checkpointer,
@@ -41,6 +42,7 @@ from .events import (
     StepEvent,
     TextDeltaEvent,
     UsageEvent,
+    WorkerEvent,
 )
 from .exceptions import (
     AgentFileError,
@@ -72,16 +74,23 @@ from .observe import StepDescriber, StepInfo, default_step_describer
 from .sse import format_sse, sse_stream
 from .tools import (
     AgentDelegate,
+    CloneBatch,
+    CloneHost,
+    CloneOutcome,
+    CloneSpec,
+    CloneToolSource,
     CompositeToolSource,
     Delegate,
     DelegateToolSource,
     FunctionTool,
     FunctionToolSource,
+    InlineCloneHost,
     MCPToolSource,
     ToolDef,
     ToolResult,
     Toolset,
     ToolSource,
+    run_clone,
     tool,
 )
 from .usage import Usage
@@ -102,8 +111,14 @@ __all__ = [
     "AgentFileError",
     "Artifact",
     "ArtifactEvent",
+    "Budget",
     "Checkpoint",
     "Checkpointer",
+    "CloneBatch",
+    "CloneHost",
+    "CloneOutcome",
+    "CloneSpec",
+    "CloneToolSource",
     "CompositeToolSource",
     "Delegate",
     "DelegateToolSource",
@@ -114,6 +129,7 @@ __all__ = [
     "FunctionToolSource",
     "ImageBlock",
     "InMemoryCheckpointer",
+    "InlineCloneHost",
     "InterruptInfo",
     "LocalWorkspace",
     "MCPToolSource",
@@ -129,6 +145,7 @@ __all__ = [
     "Reasoning",
     "ReasoningBlock",
     "Registry",
+    "RunControl",
     "RunResult",
     "RunTimeoutError",
     "ShankitError",
@@ -152,6 +169,7 @@ __all__ = [
     "Toolset",
     "Usage",
     "UsageEvent",
+    "WorkerEvent",
     "Workspace",
     "WorkspaceTools",
     "__version__",
@@ -168,6 +186,7 @@ __all__ = [
     "register",
     "register_provider",
     "resolve_model",
+    "run_clone",
     "sse_stream",
     "strip_reasoning",
     "tool",
