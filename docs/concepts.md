@@ -164,6 +164,22 @@ newest three images with a short stub once tool results hold twice that many
 (batched, so the prompt cache survives in between); like context clearing, a
 clear drops reasoning blocks and runs the next pass with reasoning off.
 
+### Images in a prompt
+
+A prompt is text, or a list of `TextBlock` and `ImageBlock` in the order the
+model should read them - a photo the user attached, then their question:
+
+```python
+await agent.run([
+    TextBlock(text="What's on this receipt?"),
+    ImageBlock(media_type="image/jpeg", data=b64),
+])
+```
+
+Anthropic gets an image block, OpenAI an `image_url` part. A `history` message
+may carry image blocks the same way. `keep_recent_images` counts only images
+in tool results; what a prompt carries is the caller's to size.
+
 ### Native toolsets
 
 Some providers train their models on a toolset they define and your code

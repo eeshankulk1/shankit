@@ -63,6 +63,7 @@ from .exceptions import (
 from .messages import (
     ImageBlock,
     Message,
+    PromptBlock,
     ReasoningBlock,
     TextBlock,
     ToolResultBlock,
@@ -121,6 +122,10 @@ _CLEAR_KEEP_CHARS = 200
 _CLEAR_MIN_CHARS = 1000
 # What an image dropped by keep_recent_images leaves behind.
 _IMAGE_CLEARED = "[older image removed to save context]"
+
+#: What a run starts from: text, or text and image blocks in the order the
+#: model should read them (a photo the user attached, then their question).
+Prompt = Union[str, Sequence[PromptBlock]]
 
 
 def _normalize_reasoning(value: ReasoningSpec) -> Optional[Reasoning]:
@@ -335,7 +340,7 @@ class Agent:
     @overload
     async def run(
         self,
-        prompt: str,
+        prompt: Prompt,
         *,
         context: Any = None,
         output_type: type[OutputT],
@@ -346,7 +351,7 @@ class Agent:
     @overload
     async def run(
         self,
-        prompt: str,
+        prompt: Prompt,
         *,
         context: Any = None,
         on_event: Optional[Callable[[AgentEvent], None]] = None,
@@ -356,7 +361,7 @@ class Agent:
 
     async def run(
         self,
-        prompt: str,
+        prompt: Prompt,
         *,
         context: Any = None,
         output_type: Optional[type] = None,
@@ -374,7 +379,8 @@ class Agent:
         sync callable, and an exception it raises aborts the run. ``history``
         is prior conversation turns (``Message`` objects or
         ``{"role", "content"}`` dicts) prepended before this call's
-        ``prompt``. ``control`` steers the run from outside it (cancel,
+        ``prompt``, which is text or a list of text and image blocks
+        (:data:`Prompt`). ``control`` steers the run from outside it (cancel,
         messages, a budget, call-time refusals, checkpoints; see
         :class:`~shankit.RunControl`).
 
@@ -457,7 +463,7 @@ class Agent:
 
     async def _run_structured(
         self,
-        prompt: Optional[str],
+        prompt: Optional[Prompt],
         *,
         context: Any,
         output_type: Optional[type],
@@ -507,7 +513,7 @@ class Agent:
 
     async def stream(
         self,
-        prompt: str,
+        prompt: Prompt,
         *,
         context: Any = None,
         history: Optional[Sequence[Any]] = None,
@@ -519,7 +525,8 @@ class Agent:
         run fails in an expected way (framework errors). Unexpected
         exceptions propagate after an ``error`` event is emitted.
         ``history`` is prior conversation turns (``Message`` objects or
-        ``{"role", "content"}`` dicts) prepended before ``prompt``.
+        ``{"role", "content"}`` dicts) prepended before ``prompt`` (text, or
+        text and image blocks: :data:`Prompt`).
         ``control`` steers the run from outside it (see
         :class:`~shankit.RunControl`).
         """
@@ -550,7 +557,7 @@ class Agent:
 
     async def _loop(
         self,
-        prompt: Optional[str],
+        prompt: Optional[Prompt],
         *,
         context: Any,
         output_type: Optional[type],

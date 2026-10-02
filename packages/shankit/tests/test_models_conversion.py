@@ -4,7 +4,15 @@ from types import SimpleNamespace
 
 import pytest
 from shankit import ShankitError
-from shankit.messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
+from shankit.messages import (
+    ImageBlock,
+    Message,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    coerce_message,
+    user_message,
+)
 from shankit.models.anthropic import _MODEL_RULES, ModelRules, model_rules, parse_message
 from shankit.models.anthropic import build_kwargs as anthropic_kwargs
 from shankit.models.base import ForcedTool, ModelRequest
@@ -551,3 +559,69 @@ def test_openai_reasoning_effort_and_reasoning_blocks_ignored():
         ],
     )
     assert messages == [{"role": "assistant", "content": "hi"}]
+
+
+# ------------------------------------------------- images in a user turn
+
+
+def _photo_turn():
+    return Message(
+        role="user",
+        content=[
+            TextBlock(text="what's on this receipt?"),
+            ImageBlock(media_type="image/jpeg", data="AAAA"),
+        ],
+    )
+
+
+def test_anthropic_sends_a_user_turns_image_as_an_image_block():
+    kwargs = anthropic_kwargs(sample_request(messages=[_photo_turn()]))
+    assert kwargs["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what's on this receipt?"},
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": "AAAA"},
+                },
+            ],
+        }
+    ]
+
+
+def test_openai_sends_a_user_turns_image_in_order_with_its_text():
+    out = to_openai_messages(None, [_photo_turn()])
+    assert out == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what's on this receipt?"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
+            ],
+        }
+    ]
+
+
+def test_openai_text_only_user_turn_stays_a_string():
+    out = to_openai_messages(None, [Message(role="user", content=[TextBlock(text="hi")])])
+    assert out == [{"role": "user", "content": "hi"}]
+
+
+def test_a_message_dict_with_an_image_block_is_coerced():
+    message = coerce_message(
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "this one"},
+                {"type": "image", "media_type": "image/png", "data": "QQ"},
+            ],
+        }
+    )
+    assert isinstance(message.content[1], ImageBlock)
+
+
+def test_user_message_takes_text_or_blocks():
+    assert user_message("hi").content == [TextBlock(text="hi")]
+    blocks = [TextBlock(text="hi"), ImageBlock(data="QQ")]
+    assert user_message(blocks).content == blocks

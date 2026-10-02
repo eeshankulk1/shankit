@@ -186,6 +186,16 @@ def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     return kwargs
 
 
+_TOOL_IMAGES_LEAD = "Images returned by the tool calls above:"
+
+
+def _image_part(block: ImageBlock) -> dict[str, Any]:
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
+    }
+
+
 def to_openai_messages(
     system: Optional[SystemPrompt], messages: list[Message]
 ) -> list[dict[str, Any]]:
@@ -194,8 +204,12 @@ def to_openai_messages(
         out.append({"role": "system", "content": system_text(system)})
     for message in messages:
         if message.role == "user":
-            texts: list[str] = []
-            images: list[dict[str, Any]] = []
+            # The user's own text and images, in order, and the images tool
+            # results returned (tool messages carry only text on Chat
+            # Completions; a tool's images follow them as a user message, in
+            # call order).
+            own: list[dict[str, Any]] = []
+            tool_images: list[dict[str, Any]] = []
             for block in message.content:
                 if isinstance(block, ToolResultBlock):
                     content = content_text(block.content)
@@ -205,22 +219,22 @@ def to_openai_messages(
                         {"role": "tool", "tool_call_id": block.tool_use_id, "content": content}
                     )
                     if not isinstance(block.content, str):
-                        images.extend(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{b.media_type};base64,{b.data}"},
-                            }
-                            for b in block.content
-                            if isinstance(b, ImageBlock)
+                        tool_images.extend(
+                            _image_part(b) for b in block.content if isinstance(b, ImageBlock)
                         )
                 elif isinstance(block, TextBlock):
-                    texts.append(block.text)
-            if images:
-                # Tool messages carry only text on Chat Completions; a tool's
-                # images follow them as a user message, in call order.
-                texts.insert(0, "Images returned by the tool calls above:")
-                parts: list[dict[str, Any]] = [{"type": "text", "text": "\n".join(texts)}]
-                out.append({"role": "user", "content": parts + images})
+                    own.append({"type": "text", "text": block.text})
+                elif isinstance(block, ImageBlock):
+                    own.append(_image_part(block))
+            texts = [p["text"] for p in own if p["type"] == "text"]
+            if len(texts) < len(own):
+                # A prompt with images of its own keeps its blocks in order.
+                if tool_images:
+                    own.append({"type": "text", "text": _TOOL_IMAGES_LEAD})
+                out.append({"role": "user", "content": own + tool_images})
+            elif tool_images:
+                lead = {"type": "text", "text": "\n".join([_TOOL_IMAGES_LEAD, *texts])}
+                out.append({"role": "user", "content": [lead, *tool_images]})
             elif texts:
                 out.append({"role": "user", "content": "\n".join(texts)})
         else:
