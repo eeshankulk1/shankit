@@ -13,6 +13,7 @@ from shankit import (
     tool,
 )
 from shankit.events import Artifact, Source
+from shankit.messages import ImageBlock, TextBlock
 from shankit.observe import StepInfo
 
 
@@ -268,3 +269,16 @@ async def test_cancelled_stream_cancels_inflight_tools(make_agent):
     await asyncio.sleep(0.01)
     assert state["cancelled"]
     assert not state["finished"]
+
+
+async def test_a_prompt_with_an_image_reaches_the_model_and_the_transcript(make_agent):
+    """A prompt may be blocks: the photo rides the user turn, in order, on
+    every pass, and the run's transcript keeps it."""
+    agent, model = make_agent([text_response("a receipt for $12")])
+    prompt = [TextBlock(text="what is this?"), ImageBlock(media_type="image/jpeg", data="AAAA")]
+    events = await collect(agent.stream(prompt))
+
+    assert model.requests[0].messages[-1].content == prompt
+    done = events[-1]
+    assert isinstance(done, DoneEvent)
+    assert done.messages[0].content == prompt

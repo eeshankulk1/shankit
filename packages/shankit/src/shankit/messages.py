@@ -7,6 +7,7 @@ loop and tool seam only ever see these types.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ __all__ = [
     "ContentBlock",
     "ImageBlock",
     "Message",
+    "PromptBlock",
     "ProviderBlock",
     "ReasoningBlock",
     "TextBlock",
@@ -35,7 +37,8 @@ class TextBlock(BaseModel):
 
 
 class ImageBlock(BaseModel):
-    """An image in a tool result (e.g. a screenshot), base64-encoded."""
+    """An image the model sees, base64-encoded: in a tool result (e.g. a
+    screenshot), or in a user turn (a photo the user attached)."""
 
     type: Literal["image"] = "image"
     media_type: str = "image/png"
@@ -102,9 +105,13 @@ class ReasoningBlock(BaseModel):
 
 
 ContentBlock = Annotated[
-    Union[TextBlock, ToolUseBlock, ToolResultBlock, ReasoningBlock],
+    Union[TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ReasoningBlock],
     Field(discriminator="type"),
 ]
+
+#: What a prompt may hold besides plain text: text and images, in the order
+#: the model should read them.
+PromptBlock = Union[TextBlock, ImageBlock]
 
 
 class Message(BaseModel):
@@ -112,8 +119,11 @@ class Message(BaseModel):
     content: list[ContentBlock]
 
 
-def user_message(text: str) -> Message:
-    return Message(role="user", content=[TextBlock(text=text)])
+def user_message(prompt: Union[str, Sequence[PromptBlock]]) -> Message:
+    """A user turn from a prompt: text, or text and image blocks in order."""
+    if isinstance(prompt, str):
+        return Message(role="user", content=[TextBlock(text=prompt)])
+    return Message(role="user", content=list(prompt))
 
 
 def coerce_message(item: Message | dict[str, Any]) -> Message:

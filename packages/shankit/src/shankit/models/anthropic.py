@@ -306,11 +306,20 @@ def _message_param(message: Message) -> Optional[dict[str, Any]]:
             content.append(param)
         elif isinstance(block, ToolResultBlock):
             content.append(_tool_result_param(block))
+        elif isinstance(block, ImageBlock):
+            content.append(_image_param(block))
         else:
             content.append(block.model_dump())
     if not content:
         return None
     return {"role": message.role, "content": content}
+
+
+def _image_param(block: ImageBlock) -> dict[str, Any]:
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": block.media_type, "data": block.data},
+    }
 
 
 def _tool_result_param(block: ToolResultBlock) -> dict[str, Any]:
@@ -333,12 +342,7 @@ def _result_content(content: Any) -> Any:
         if isinstance(item, TextBlock):
             out.append({"type": "text", "text": item.text})
         elif isinstance(item, ImageBlock):
-            out.append(
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": item.media_type, "data": item.data},
-                }
-            )
+            out.append(_image_param(item))
         elif isinstance(item, ProviderBlock):
             if item.provider == _PROVIDER and item.data:
                 out.append(dict(item.data))

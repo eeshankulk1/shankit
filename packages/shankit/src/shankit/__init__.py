@@ -22,7 +22,7 @@ Public surface (design §11):
 # the core imports because evals itself imports from shankit.agent.
 from . import evals
 from ._calls import ToolCallContext, current_tool_call
-from .agent import Agent, RunResult, ToolCallRecord
+from .agent import Agent, Prompt, RunResult, ToolCallRecord
 from .control import Budget, RunControl
 from .durability import (
     Checkpoint,
@@ -59,6 +59,7 @@ from .files import Registry, default_registry, load_agent, load_agents, register
 from .messages import (
     ImageBlock,
     Message,
+    PromptBlock,
     ProviderBlock,
     ReasoningBlock,
     TextBlock,
@@ -140,6 +141,8 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "OutputValidationError",
+    "Prompt",
+    "PromptBlock",
     "PromptVariableError",
     "ProviderBlock",
     "Reasoning",

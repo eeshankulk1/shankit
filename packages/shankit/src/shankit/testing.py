@@ -33,6 +33,7 @@ from pydantic_core import to_jsonable_python
 from .agent import OUTPUT_TOOL_NAME
 from .messages import (
     ContentBlock,
+    ImageBlock,
     ReasoningBlock,
     TextBlock,
     ToolResultBlock,
@@ -310,6 +311,8 @@ def _describe_block(block: Any) -> str:
         return f"tool_result {block.tool_use_id}{error} {_clip(content_text(block.content))}"
     if isinstance(block, ReasoningBlock):
         return f"reasoning {_clip(block.text)}"
+    if isinstance(block, ImageBlock):
+        return f"image {block.media_type}"
     return str(getattr(block, "type", type(block).__name__))
 
 
