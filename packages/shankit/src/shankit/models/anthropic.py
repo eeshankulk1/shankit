@@ -248,6 +248,7 @@ _MODEL_RULES: tuple[tuple[str, ModelRules], ...] = (
     ("claude-mythos-5", _ALWAYS_THINKS),
     ("claude-opus-5", _ADAPTIVE_ONLY),
     ("claude-sonnet-5", _ADAPTIVE_ONLY),
+    ("claude-haiku-5-5", _ADAPTIVE_ONLY),
     ("claude-opus-4-8", _ADAPTIVE_ONLY),
     ("claude-opus-4-7", _ADAPTIVE_ONLY),
 )

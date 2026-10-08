@@ -317,6 +317,7 @@ def test_anthropic_reasoning_maps_to_thinking_and_effort():
         ("claude-sonnet-5", {"type": "disabled"}, None),
         ("claude-opus-5", {"type": "disabled"}, None),
         ("claude-opus-4-8", {"type": "disabled"}, None),
+        ("claude-haiku-5-5", {"type": "disabled"}, None),
         ("claude-haiku-4-5", {"type": "disabled"}, None),
     ],
 )
@@ -346,6 +347,7 @@ def test_anthropic_forced_tool_goes_out_as_auto_where_forcing_is_rejected(model)
         ("claude-sonnet-5-5", False),
         ("claude-sonnet-5", False),
         ("claude-opus-4-8", False),
+        ("claude-haiku-5-5", False),
         ("claude-haiku-4-5", True),
         ("claude-sonnet-4-6", True),
     ],
@@ -409,6 +411,7 @@ def test_anthropic_forced_tool_without_tools_keeps_reasoning():
         ("claude-mythos-5", None, "low"),
         ("claude-opus-5", {"type": "disabled"}, None),
         ("claude-opus-4-8", {"type": "disabled"}, None),
+        ("claude-haiku-5-5", {"type": "disabled"}, None),
     ],
 )
 def test_anthropic_forced_tool_still_forced_where_accepted(model, thinking, effort):
@@ -435,6 +438,7 @@ def test_anthropic_forced_tool_still_forced_where_accepted(model, thinking, effo
         "claude-sonnet-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
+        "claude-haiku-5-5",
     ],
 )
 def test_anthropic_thinking_budget_becomes_adaptive_where_it_is_rejected(model):
