@@ -1,0 +1,1 @@
+{"date": "2026-10-08", "project": "shankit", "summary": "Claude Haiku 5.5 gets a model rule: shankit no longer sends it temperature or a fixed thinking budget, both of which the API rejects with a 400. Reasoning off and a forced tool still go out as asked.", "pr": 21, "why": "throu is moving its helper model to claude-haiku-5-5 and pins shankit to this commit."}
