@@ -200,3 +200,10 @@ it if the passthrough design stays dead simple. Fine to reject.
   `aclose()` (vs task-cancel) semantics.
   **Status: provider-exception behavior covered** (with item 2, in
   `test_model_errors.py`); the remaining two stay open.
+- OpenAI `reasoning_effort` beside function tools: Chat Completions 400s on
+  the pair for gpt-5.4 (and -mini/-nano) and gpt-5.5, so `OpenAIModel` leaves
+  the effort out there (`openai._NO_EFFORT_WITH_TOOLS`) and the model reasons
+  at its own default. The full fix is the Responses API, which takes both
+  (and round-trips reasoning). Deferred; tracked in the throu repo, issue
+  #417.
+  **Status: workaround shipped, Responses API move open.**

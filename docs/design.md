@@ -553,7 +553,10 @@ where the original text had a gap (flagged ⚠):
       `budget_tokens` is rejected, and a forced tool goes out as `auto`
       where forcing is rejected (the loop's nudge asks for it in words, and
       the pass keeps its reasoning). OpenAI Chat Completions maps effort
-      to `reasoning_effort` (no round-trip exists there).
+      to `reasoning_effort` (no round-trip exists there), and leaves it out
+      beside function tools on the models that refuse the pair (gpt-5.4,
+      gpt-5.5: `openai._NO_EFFORT_WITH_TOOLS`), which then reason at their
+      own default.
       `strip_reasoning()` is for replaying a
       transcript into a *different* run: providers bind reasoning to the
       exact conversation that produced it.

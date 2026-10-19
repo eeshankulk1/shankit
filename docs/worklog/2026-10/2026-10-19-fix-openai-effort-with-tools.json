@@ -1,0 +1,1 @@
+{"date": "2026-10-19", "project": "shankit", "summary": "OpenAI requests with tools no longer send reasoning_effort on gpt-5.4 and gpt-5.5, which Chat Completions 400s on; those models reason at their own default there.", "pr": 22, "why": "Every GPT and GPT Pro turn in throu failed, since its assistant always sends an effort and always carries tools."}
