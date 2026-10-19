@@ -565,6 +565,19 @@ def test_openai_reasoning_effort_and_reasoning_blocks_ignored():
     assert messages == [{"role": "assistant", "content": "hi"}]
 
 
+def test_openai_leaves_effort_out_beside_tools_where_the_model_refuses_it():
+    medium = Reasoning(effort="medium")
+    for model in ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "openai/gpt-5.5"):
+        kwargs = openai_kwargs(sample_request(model=model, reasoning=medium))
+        assert kwargs["tools"]
+        assert "reasoning_effort" not in kwargs
+        bare = openai_kwargs(sample_request(model=model, tools=[], reasoning=medium))
+        assert bare["reasoning_effort"] == "medium"
+    for model in ("gpt-5.2", "gpt-5", "o3"):
+        kwargs = openai_kwargs(sample_request(model=model, reasoning=medium))
+        assert kwargs["reasoning_effort"] == "medium"
+
+
 # ------------------------------------------------- images in a user turn
 
 

@@ -48,7 +48,9 @@ Agent(
                                 # neutral "thinking". None sends nothing (the model's own
                                 # default); False sends each model's lowest setting
                                 # (models that can't turn thinking off think briefly:
-                                # `anthropic.model_rules`).
+                                # `anthropic.model_rules`). OpenAI Chat Completions
+                                # omits the effort beside tools on gpt-5.4 / gpt-5.5,
+                                # which refuse the pair.
     context_clear_threshold_tokens=None, # stub old tool results once a pass's prompt
                                 # crosses this many tokens (long-run context management).
     context_keep_recent_results=3, # results kept intact when clearing context.

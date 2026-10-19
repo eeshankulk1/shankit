@@ -36,6 +36,13 @@ __all__ = ["OpenAIModel"]
 _FINISH_REASONS = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
 # OpenAI's effort scale tops out at "high".
 _OPENAI_EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
+# Models that 400 on `reasoning_effort` beside function tools in Chat
+# Completions ("use /v1/responses or set reasoning_effort to 'none'"; live
+# 2026-10-19). A request with tools leaves the effort out there, and the
+# model reasons at its own default (gpt-5.5 still reasons; "none" would stop
+# it). gpt-5.2 and older and the o-series take both. Prefixes, so the -mini
+# and -nano variants match.
+_NO_EFFORT_WITH_TOOLS = ("gpt-5.4", "gpt-5.5")
 
 
 class OpenAIModel(ModelClient):
@@ -148,6 +155,13 @@ def _map_error(exc: Exception) -> Optional[ModelError]:
     )
 
 
+def effort_refused_with_tools(model: str) -> bool:
+    """Whether ``model`` (a bare id, or a prefixed one such as
+    ``openai/gpt-5.5``) rejects ``reasoning_effort`` beside function tools."""
+    at = model.find("gpt-")
+    return at >= 0 and model[at:].startswith(_NO_EFFORT_WITH_TOOLS)
+
+
 def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     """Convert a neutral request into ``chat.completions.create`` kwargs."""
     kwargs: dict[str, Any] = {
@@ -161,7 +175,12 @@ def build_kwargs(request: ModelRequest) -> dict[str, Any]:
     if request.temperature is not None:
         kwargs["temperature"] = request.temperature
     reasoning = request.reasoning
-    if reasoning is not None and reasoning.enabled and reasoning.effort is not None:
+    if (
+        reasoning is not None
+        and reasoning.enabled
+        and reasoning.effort is not None
+        and not (request.tools and effort_refused_with_tools(request.model))
+    ):
         # Chat Completions has no reasoning round-trip (reasoning items live
         # in the Responses API), only the effort knob — and only reasoning
         # models accept it, so it is sent only when asked for.
