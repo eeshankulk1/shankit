@@ -12,16 +12,19 @@ from .base import (
     model_error_for_status,
     wrap_sdk_errors,
 )
+from .observed import ModelCall, ObservedModel
 from .registry import ProviderFactory, get_provider, register_provider, resolve_model, shutdown
 
 __all__ = [
     "ForcedTool",
+    "ModelCall",
     "ModelClient",
     "ModelRequest",
     "ModelResponse",
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelTextDelta",
+    "ObservedModel",
     "ProviderFactory",
     "SystemPrompt",
     "default_stream_from_complete",

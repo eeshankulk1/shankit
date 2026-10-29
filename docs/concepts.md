@@ -440,6 +440,14 @@ model="openai:gpt-5.5"
   put something (metering, logging) around every client it makes:
   `register_provider("anthropic", lambda: Metered(inner()))`. A wrapper can tell
   which agent made a call from `request.agent`.
+- `ObservedModel(inner, before=..., after=...)` (from `throukit.models`) is that
+  wrapper, ready made. `before(request)` runs ahead of each call and may raise
+  to refuse it (a spend cap). `after(call)` gets one `ModelCall` per call
+  however it ended: the request, `streamed`, `started_at`, `duration`,
+  `first_text` (seconds to the first text delta), and `response` or `error`.
+  `call.cancelled` is a call the caller stopped (a cancelled task, a stream
+  closed before its response); a stream closed after its response counts as
+  `ok`. An exception from `after` is logged, never raised into the call.
 - Passing `model_client=` to `Agent` bypasses the registry entirely - bring your
   own client, and `model` becomes a bare model id.
 
@@ -539,6 +547,37 @@ async def test_support_agent_checks_the_order():
 - **Tools outside a run.** `with tool_call(emit=events.append):` makes
   `current_tool_call()` return a call, so a tool that emits events or keeps
   per-run state can be tested on its own.
+
+### Recording real calls: cassettes
+
+A scripted model suits a test that knows each answer. For an end-to-end run
+against real prompts, record the real provider once and replay it after, with
+no network and no spend:
+
+```python
+from throukit.models import AnthropicModel
+from throukit.testing import Cassette, CassetteModel
+
+tape = Cassette("tests/cassettes", scrub=[(r"It is now .*?\.", "It is now <now>.")])
+mode = "replay"  # "record" calls the provider and saves each response
+register_provider("anthropic", lambda: CassetteModel("anthropic", AnthropicModel, tape, mode))
+```
+
+- **Keys.** Each call is stored as `<dir>/<key>.json`, the key a hash of the
+  request with what changes between runs taken out: UUIDs, provider tool-call
+  ids, reasoning signatures and cache marks by default, plus your `scrub`
+  patterns (`(pattern, replacement)` pairs, run after the defaults), and never
+  `request.agent`. Scrub your prompt's clock line and your own ids, or every
+  run misses.
+- **Misses.** A replay with no recording raises `CassetteMiss`, a
+  non-retryable `ModelError`, and writes `<dir>/_misses/<key>.json` with the
+  request and a diff against the closest recording.
+- **Rekey.** After changing `scrub`, `tape.rekey()` renames every recording
+  to its new key; nothing is recorded again.
+- **Credentials.** The live client is a factory, built on the first recorded
+  call: a replay never needs an API key.
+- `tape.load(provider, request)` / `tape.save(provider, request, response)`
+  take plain dicts, for a call made outside a `ModelClient`.
 
 ## The event stream
 

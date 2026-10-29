@@ -36,6 +36,10 @@ otherwise. Anything under `throukit.experimental` may change in any release.
 
 ::: throukit.ModelError
 
+::: throukit.models.ObservedModel
+
+::: throukit.models.ModelCall
+
 ## Agent files
 
 ::: throukit.load_agent
@@ -53,6 +57,10 @@ otherwise. Anything under `throukit.experimental` may change in any release.
 ## Testing
 
 ::: throukit.testing.ScriptedModel
+
+::: throukit.testing.Cassette
+
+::: throukit.testing.CassetteModel
 
 ## Errors
 

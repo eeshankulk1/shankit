@@ -99,7 +99,8 @@ A tool reports a failure the model should see with `ToolError("...")`. Any other
 | **Evals** | Datasets, scorers, model-graded judging and checks on the tools an agent called ([guide](docs/evals.md)) |
 | **Connectors** | [`throukit-connectors`](packages/throukit-connectors): OAuth connection lifecycle with an official Composio implementation ([guide](docs/connectors.md)) |
 | **TypeScript** | [`@throukit/client`](packages/client-ts): typed SSE consumer whose event types are generated from the Python models, so CI catches any drift |
-| **Testing** | `throukit.testing.ScriptedModel` replays model turns for fast tests with no network |
+| **Models** | Anthropic and OpenAI behind one `ModelClient`, `register_provider()` for more, and `ObservedModel` to meter, log or cap every call |
+| **Testing** | `throukit.testing.ScriptedModel` scripts model turns, and record/replay `Cassette`s capture real ones, for fast tests with no network |
 
 ## Agent files
 

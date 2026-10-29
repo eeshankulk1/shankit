@@ -23,6 +23,9 @@ a ``ModelError`` or an ``error`` event.
 client for a while (agents built deep inside an app, where no
 ``model_client=`` can be passed), and `tool_call` runs a tool's code
 as if the loop were executing it (`throukit.current_tool_call`).
+
+`Cassette` and `CassetteModel` record real model calls once
+and replay them after, for end-to-end runs with no network and no spend.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ from typing import Any, Literal, Optional, Union
 from pydantic_core import to_jsonable_python
 
 from ._calls import _CURRENT, ToolCallContext
+from ._cassette import Cassette, CassetteMiss, CassetteModel, Scrub
 from .agent import OUTPUT_TOOL_NAME
 from .messages import (
     ContentBlock,
@@ -60,9 +64,13 @@ from .models.registry import _unregister_provider, register_provider
 from .usage import Usage
 
 __all__ = [
+    "Cassette",
+    "CassetteMiss",
+    "CassetteModel",
     "ScriptFailure",
     "ScriptItem",
     "ScriptedModel",
+    "Scrub",
     "ToolCall",
     "Turn",
     "tool_call",

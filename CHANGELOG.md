@@ -34,6 +34,12 @@ anything under `throukit.experimental` may change in any release.
 - `get_provider()` reads a registered provider, and `register_provider()`
   returns the factory it replaced, so a provider can be wrapped.
 - `throukit.testing.use_model()` and `tool_call()` for tests.
+- `ObservedModel` (from `throukit.models`) wraps a model client: a `before`
+  hook can refuse a call (a spend cap), and an `after` hook gets one
+  `ModelCall` per call with timing, time to first text, and the response or
+  error.
+- `throukit.testing.Cassette` and `CassetteModel` record real model calls once
+  and replay them in tests, with ids scrubbed from the keys.
 - `RunControl.send(on_delivered=)` and `RunControl.undelivered()`.
 - `WorkspaceTools.bash_def`, `resolve_env` and `command_timeout()` are public.
 

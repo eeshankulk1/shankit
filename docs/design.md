@@ -671,3 +671,21 @@ where the original text had a gap (flagged ⚠):
       `cache_write_tokens` so existing pricing still adds up.
     - `default_reasoning` stands in when a request has none (Throu turns
       reasoning off for its cheap passes).
+20. **Model-call wrappers: observing and recording.** Throu wrapped every
+    provider client twice with near-copies of one class (a metering row per
+    call, and an eval spend cap), each re-deriving the subtle stream cases,
+    and kept a record/replay cassette of its own. Both are useful to any app
+    with a provider in front of it, so they ship, sized to what Throu uses:
+    - `throukit.models.ObservedModel(inner, before=, after=)`. `before` may
+      raise to refuse a call; `after` gets a `ModelCall` (timing, first-text
+      latency, response or error, `cancelled`). A stream closed after its
+      response counts as a success, one closed before it as cancelled, one
+      that ends without a response as an error with `error=None`.
+    - `throukit.testing.Cassette` / `CassetteModel` / `CassetteMiss`. Keys
+      mask UUIDs and provider tool-call ids and leave out reasoning
+      signatures, cache marks and `request.agent` by default;
+      app-specific volatility (a clock line, its own ids) is the app's
+      `scrub` list, run after the defaults so its
+      patterns never see half a UUID. `rekey()` replaces a paid re-record
+      after a scrub change. No mode switch or environment variable: the app
+      picks record or replay.
