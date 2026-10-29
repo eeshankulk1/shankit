@@ -19,7 +19,8 @@ from shankit.messages import (
     ToolUseBlock,
     content_text,
 )
-from shankit.models.anthropic import _message_param, build_kwargs, parse_message
+from shankit.models import anthropic
+from shankit.models.anthropic import build_kwargs, parse_message
 from shankit.models.base import ModelRequest, ModelResponse
 from shankit.models.openai import build_kwargs as openai_kwargs
 from shankit.tools.base import NOT_EXECUTED, Toolset
@@ -29,6 +30,14 @@ BROWSER = Toolset(
     native={"anthropic": {"type": "browser_toolset_20260801"}},
     ordered=True,
 )
+
+
+def _message_param(message: Message) -> dict:
+    """The message param alone (the converter also says where it may be
+    cached)."""
+    param = anthropic._message_param(message)
+    assert param is not None
+    return param[0]
 
 
 def member(name: str) -> ToolDef:

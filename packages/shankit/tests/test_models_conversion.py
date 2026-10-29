@@ -109,11 +109,15 @@ def test_anthropic_parse_message_cache_tokens():
             output_tokens=7,
             cache_read_input_tokens=1000,
             cache_creation_input_tokens=2500,
+            cache_creation=SimpleNamespace(
+                ephemeral_5m_input_tokens=500, ephemeral_1h_input_tokens=2000
+            ),
         ),
     )
     usage = parse_message(message).usage
     assert usage.cache_read_tokens == 1000
     assert usage.cache_write_tokens == 2500
+    assert usage.cache_write_1h_tokens == 2000
 
 
 # ------------------------------------------------------------------ openai
