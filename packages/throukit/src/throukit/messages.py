@@ -127,7 +127,7 @@ def user_message(prompt: Union[str, Sequence[PromptBlock]]) -> Message:
 
 
 def coerce_message(item: Message | dict[str, Any]) -> Message:
-    """Accept a :class:`Message` or a plain ``{"role", "content"}`` dict.
+    """Accept a `Message` or a plain ``{"role", "content"}`` dict.
 
     A dict's ``content`` may be a string (wrapped in a text block) or a list
     of content blocks. This is the leniency layer for callers that keep chat

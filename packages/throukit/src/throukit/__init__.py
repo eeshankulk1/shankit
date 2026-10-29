@@ -3,18 +3,18 @@ seriously as the agent loop itself, without imposing how you authenticate.
 
 Public surface (design §11):
 
-- :class:`Agent` with two run modes over one loop: ``run()`` (structured)
+- `Agent` with two run modes over one loop: ``run()`` (structured)
   and ``stream()`` (typed event stream).
-- The tool seam: :class:`ToolSource` and its shipped implementations —
-  ``@tool`` local functions, :class:`MCPToolSource`, and
-  :class:`CompositeToolSource`.
+- The tool seam: `ToolSource` and its shipped implementations —
+  ``@tool`` local functions, `MCPToolSource`, and
+  `CompositeToolSource`.
 - The opaque per-run context: your plain data, threaded to tools and
   dynamic instructions; the framework never reads inside it.
 - Provider-neutral model clients (Anthropic, OpenAI at launch).
-- File-first definitions: :func:`load_agent` / :func:`load_agents`.
-- Durability: :class:`Checkpointer` with in-memory and SQLite stores.
-- Evaluation: :mod:`throukit.evals`.
-- Experimental graph/network: :mod:`throukit.experimental.graph`.
+- File-first definitions: `load_agent` / `load_agents`.
+- Durability: `Checkpointer` with in-memory and SQLite stores.
+- Evaluation: `throukit.evals`.
+- Experimental graph/network: `throukit.experimental.graph`.
 """
 
 # Documented as reachable off the package (`throukit.evals`); import it so

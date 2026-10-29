@@ -1,6 +1,6 @@
 """The provider-neutral model-client contract (design §7.3).
 
-The agent loop talks to models only through :class:`ModelClient`. Requests
+The agent loop talks to models only through `ModelClient`. Requests
 carry messages/tools in the framework's one boundary shape (Anthropic
 tool-use shape); each client converts to its provider's wire format
 internally. Reasoning comes back as opaque ``ReasoningBlock``s the client
@@ -14,7 +14,7 @@ response (including any tool-use blocks), so the loop can stream text while
 still handling tool calls off the complete response.
 
 Error contract: a failed provider call surfaces as
-:class:`throukit.ModelError` (``model_error_for_status`` builds the common
+`throukit.ModelError` (``model_error_for_status`` builds the common
 HTTP-status case). A client that raises anything else is tolerated — the
 loop wraps unknown exceptions as a fallback — but mapping in the client is
 better, because the client knows which of its SDK's failures are transient.
@@ -164,7 +164,7 @@ def default_stream_from_complete(
 
 
 def model_error_for_status(provider: str, status: int) -> ModelError:
-    """The :class:`ModelError` for an HTTP status from a provider API.
+    """The `ModelError` for an HTTP status from a provider API.
 
     Retryability follows what the provider SDKs themselves auto-retry:
     408/409/429 and every 5xx (which covers Anthropic's 529 overloaded).

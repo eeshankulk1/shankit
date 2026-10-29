@@ -1,7 +1,7 @@
 """Run control: steering a running agent from outside its loop.
 
-A :class:`RunControl` passed to :meth:`Agent.run` / :meth:`Agent.stream` /
-:meth:`Agent.resume` lets code outside the run act on it while it works,
+A `RunControl` passed to `Agent.run` / `Agent.stream` /
+`Agent.resume` lets code outside the run act on it while it works,
 always at the loop's own boundaries (cooperative, never mid-call):
 
 - **cancel** - the run ends at its next boundary, before another model
@@ -18,9 +18,9 @@ always at the loop's own boundaries (cooperative, never mid-call):
   another run of the same agent survives); a refused call comes back as an
   error result carrying the veto's text;
 - **checkpoint** - called with the run's transcript at every boundary, so
-  a crashed run can continue from it (:meth:`Agent.resume`);
+  a crashed run can continue from it (`Agent.resume`);
 - **worker / depth** - who this run is when it is one of several (a clone,
-  see :class:`~throukit.CloneToolSource`); ``depth`` is what the spawn tool's
+  see `throukit.CloneToolSource`); ``depth`` is what the spawn tool's
   depth guard reads;
 - **parent** - the control of the run that spawned this one: cancelling it
   cancels this run too.
@@ -59,7 +59,7 @@ class Budget:
     """Soft limits a run winds down at, checked at each pass boundary.
 
     Reaching one doesn't raise (unlike ``Agent(max_iterations=, timeout_s=)``,
-    the hard bounds): the model gets :attr:`notice` and one last pass with
+    the hard bounds): the model gets `notice` and one last pass with
     tools off, and the run ends with ``stopped == "budget"`` and whatever
     it wrote in that pass.
 
@@ -69,7 +69,7 @@ class Budget:
         timeout_s: Wall clock since this run (or resume) started.
         max_cost: Spend ceiling in your own unit, priced by ``cost`` from
             the run's cumulative usage (plus ``spent`` for a resumed run).
-        cost: Prices a :class:`Usage`. Required with ``max_cost``.
+        cost: Prices a `Usage`. Required with ``max_cost``.
         spent: Cost already spent before this run started (a resume).
         notice: What the model is told when the budget is reached.
     """

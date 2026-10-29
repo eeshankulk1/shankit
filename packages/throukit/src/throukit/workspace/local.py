@@ -5,7 +5,7 @@ commands run as the current OS user with full access to the host (the
 directory is only the default home and scratch location, not a jail). Host
 an agent that reads untrusted content (email, web pages) for other people in
 a real sandbox — a hosted microVM or container behind the same
-:class:`~throukit.Workspace` contract.
+`throukit.Workspace` contract.
 
 Commands get a minimal environment (``PATH``, ``HOME``, ``TMPDIR``,
 ``LANG`` plus whatever the caller passes), never the parent process's

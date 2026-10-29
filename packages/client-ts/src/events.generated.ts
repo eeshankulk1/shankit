@@ -5,7 +5,7 @@
 /**
  * A typed structured payload surfaced by a tool result.
  *
- * Where a :class:`Source` is semantically a citation, an artifact is
+ * Where a `Source` is semantically a citation, an artifact is
  * content: a piece of typed data the application wants to carry from a
  * tool execution out to the caller intact (e.g. an email card, a
  * calendar event). ``type`` names the application-defined kind;
@@ -152,7 +152,7 @@ export interface ErrorEvent {
  * conversation it is ``None``. ``truncated`` is true if any model pass of
  * the run (or of a sub-agent run reporting through the tool seam) stopped
  * at the token limit, meaning the result may be incomplete. ``stopped``
- * says the run ended early by :class:`~throukit.RunControl`: ``"budget"``
+ * says the run ended early by `throukit.RunControl`: ``"budget"``
  * (it reached its budget and wrote a last report) or ``"cancelled"``.
  */
 export interface DoneEvent {

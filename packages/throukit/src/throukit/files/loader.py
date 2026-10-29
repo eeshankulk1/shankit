@@ -4,7 +4,7 @@ The file format mirrors Claude Code subagent files wherever concepts
 overlap — YAML frontmatter for identity/description/model/tools, markdown
 body as the system prompt — and diverges only to *add* one key:
 ``output_schema``, whose presence lets the agent be run for structured
-output. A file produces the same :class:`~throukit.Agent` the Python
+output. A file produces the same `throukit.Agent` the Python
 constructor would; the file is sugar.
 
 Example (``triage.md``)::
@@ -57,7 +57,7 @@ def load_agent(
     describe_step: Optional[StepDescriber] = default_step_describer,
     agent_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> Agent:
-    """Load one agent definition file into an :class:`~throukit.Agent`.
+    """Load one agent definition file into an `throukit.Agent`.
 
     Args:
         registry: Where short-name references resolve; defaults to the
@@ -67,7 +67,7 @@ def load_agent(
         default_model: Used when the file omits ``model``.
         describe_step: Step-describer to attach (observability is configured
             in code, not prose).
-        agent_kwargs: Further :class:`~throukit.Agent` options the file
+        agent_kwargs: Further `throukit.Agent` options the file
             format doesn't express (runtime wiring like ``workspace=``,
             ``max_tool_result_chars=``, ``reasoning=``). Frontmatter-derived
             options win on conflict.

@@ -2,9 +2,9 @@
 
 An agent names its model as ``"provider:model_id"`` — e.g.
 ``"anthropic:claude-sonnet-4-5"`` or ``"openai:gpt-4.1"``. The provider
-prefix picks a :class:`ModelClient` factory; everything after the first
+prefix picks a `ModelClient` factory; everything after the first
 colon is passed to the provider verbatim. Register additional providers
-with :func:`register_provider`, or bypass resolution entirely by handing
+with `register_provider`, or bypass resolution entirely by handing
 the agent a ``ModelClient`` instance.
 """
 

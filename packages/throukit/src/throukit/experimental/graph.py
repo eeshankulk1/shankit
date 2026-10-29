@@ -7,9 +7,9 @@ agents is a smell; hand the sub-agents to a parent agent instead.
 
 Shape: a **router-driven loop over shared state**, not a declared node/edge
 graph. The loop repeatedly calls a router that reads the state and returns
-the next step name, an :class:`Interrupt` to pause for a human, or ``None``
+the next step name, an `Interrupt` to pause for a human, or ``None``
 to stop. A step is anything callable that touches state — an adapted agent
-(:func:`agent_step`), a plain function, or a nested :class:`Network`.
+(`agent_step`), a plain function, or a nested `Network`.
 
 The state the router reads and writes **is** what the checkpointer persists
 (one state concept, design §7.1); every router decision is a checkpoint
@@ -52,7 +52,7 @@ __all__ = ["Interrupt", "Network", "NetworkResult", "agent_step"]
 logger = logging.getLogger("throukit")
 
 # Returned by a router to pause the run for a human: on
-# :meth:`Network.resume`, the supplied value is written into the state under
+# `Network.resume`, the supplied value is written into the state under
 # ``key`` and routing continues. This *is* the durable record a checkpoint
 # stores (one type, so an interrupt round-trips through a checkpointer
 # unchanged); the alias is the router-facing name.
@@ -78,7 +78,7 @@ class Network:
 
     A network is itself runnable like an agent, usable as a step in another
     network (it is a valid ``StepFn``), and exposable as a tool via
-    :meth:`as_tool` — deterministic sub-flows and normal agent conversations
+    `as_tool` — deterministic sub-flows and normal agent conversations
     compose in both directions.
     """
 
@@ -167,7 +167,7 @@ class Network:
         This method refuses that case unless ``retry_in_flight=True``, by
         which the caller asserts exactly that.
 
-        Threads that are ``interrupted`` resume via :meth:`resume` (they are
+        Threads that are ``interrupted`` resume via `resume` (they are
         waiting on input, not crashed); ``done`` threads have nothing to
         recover.
         """

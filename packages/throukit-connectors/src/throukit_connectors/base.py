@@ -1,6 +1,6 @@
 """The connector contract (design §4).
 
-A connector is a :class:`throukit.ToolSource` **plus** the connection
+A connector is a `throukit.ToolSource` **plus** the connection
 lifecycle for sources that need OAuth-style linking:
 
 - ``initiate``  — start connecting an account, returning whatever the app

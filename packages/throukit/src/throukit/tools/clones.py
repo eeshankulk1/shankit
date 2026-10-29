@@ -1,8 +1,8 @@
 """Clones: the running agent splits its work across copies of itself.
 
-One ``spawn`` tool (:class:`CloneToolSource`). The model hands it a list of
+One ``spawn`` tool (`CloneToolSource`). The model hands it a list of
 parts, each a short title and a brief; each part runs as a **clone** - the
-same :class:`~throukit.Agent` that is running (same model, instructions,
+same `throukit.Agent` that is running (same model, instructions,
 tools and reasoning setting), with a fresh history that starts from the
 brief - and the tool returns each clone's report. Because a clone is the
 same agent, its first request shares the spawning run's prompt prefix, so a
@@ -12,24 +12,24 @@ What the source enforces, as code rather than prompt:
 
 - **Depth**: a clone at ``max_depth`` can't spawn (refused at call time;
   its tool list is unchanged). Clones know their depth through their
-  :class:`~throukit.RunControl`.
+  `throukit.RunControl`.
 - **Caps**: clones per call (``max_per_batch``) and per run
   (``max_per_run``); over a cap, the call is refused whole so the model can
   regroup.
-- **Budgets**: each clone runs under a :class:`~throukit.Budget` (passes,
+- **Budgets**: each clone runs under a `throukit.Budget` (passes,
   time, cost); one that reaches it reports what it has (``partial``).
 - **Refusals**: tools a clone may not call (anything that talks to the
   user, say) are vetoed at call time by ``refuse``.
 - **Attribution**: a clone's steps carry ``worker=<clone id>``; its
-  lifecycle is a :class:`~throukit.WorkerEvent` in the parent's stream.
+  lifecycle is a `throukit.WorkerEvent` in the parent's stream.
 
-Where clones run is a seam, :class:`CloneHost`. The default,
-:class:`InlineCloneHost`, runs a batch concurrently inside the spawning
+Where clones run is a seam, `CloneHost`. The default,
+`InlineCloneHost`, runs a batch concurrently inside the spawning
 call and rolls the clones' usage, sources and artifacts into its result. An
 application with a durable runner implements its own host: start the
 clones there, wait as long as the parent can, and return ``background``
 outcomes for the rest (delivering their reports later itself).
-:func:`run_clone` is the building block either way.
+`run_clone` is the building block either way.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ class CloneBatch:
         return make(self.context, spec) if make is not None else self.context
 
     def control_for(self, spec: CloneSpec, **overrides: Any) -> RunControl:
-        """A fresh :class:`RunControl` for a clone: its worker id and depth,
+        """A fresh `RunControl` for a clone: its worker id and depth,
         its budget, and the clone refusals (plus the depth guard)."""
         kwargs: dict[str, Any] = {
             "worker": spec.id,
@@ -283,14 +283,14 @@ class CloneToolSource(ToolSource):
     """The ``spawn`` tool (see the module doc).
 
     Args:
-        host: Where clones run (default :class:`InlineCloneHost`).
+        host: Where clones run (default `InlineCloneHost`).
         tool_name: The tool's name.
         description: The tool's description (the model's guide to it).
         max_depth: Clones this deep can't spawn (1: only the top-level run
             spawns).
         max_per_batch: Clones one call may start.
         max_per_run: Clones one run may start in all (``None``: no cap).
-        budget: Each clone's :class:`Budget`, or a function of its spec.
+        budget: Each clone's `Budget`, or a function of its spec.
         refuse: Tools a clone may not call - names, or a veto function
             ``(name, args) -> text | None``. Refused at call time.
         refusal_text: The text for a refused name (``{tool}`` is filled in).

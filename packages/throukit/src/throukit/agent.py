@@ -2,8 +2,8 @@
 
 One agent, runnable two ways over the same underlying tool-use loop:
 
-- :meth:`Agent.run` — **structured**: returns a typed, validated deliverable.
-- :meth:`Agent.stream` — **streaming**: yields the typed event stream
+- `Agent.run` — **structured**: returns a typed, validated deliverable.
+- `Agent.stream` — **streaming**: yields the typed event stream
   (text deltas, steps, sources, usage, done).
 
 The two modes split on output shape, not sync-vs-async, and whether
@@ -110,7 +110,7 @@ Instructions = Union[SystemPrompt, Callable[[Any], Union[SystemPrompt, Awaitable
 
 ReasoningSpec = Union[bool, str, Reasoning, None]
 
-#: Why a :class:`~throukit.RunControl` ended a run early.
+#: Why a `throukit.RunControl` ended a run early.
 StopReason = Literal["budget", "cancelled"]
 
 # Spilled results keep a head and a tail of the output inline.
@@ -172,7 +172,7 @@ class RunResult(Generic[OutputT]):
     truncated: bool = False
     #: The run's own transcript (see ``DoneEvent.messages``).
     messages: list[Message] = field(default_factory=list)
-    #: Why a :class:`~throukit.RunControl` ended the run early:
+    #: Why a `throukit.RunControl` ended the run early:
     #: ``"budget"`` or ``"cancelled"`` (``None``: it finished).
     stopped: Optional[StopReason] = None
 
@@ -214,20 +214,20 @@ class Agent:
     """A model + instructions + tool sources + an optional step-describer.
 
     Args:
-        name: Identity, also the default tool name via :meth:`as_tool`.
+        name: Identity, also the default tool name via `as_tool`.
         model: ``"provider:model_id"`` spec, or a bare model id when
             ``model_client`` is given.
         instructions: Static prose, or a (sync/async) function of the opaque
             per-run context for dynamic instructions. Either may be a list
             of parts, ordered stable to volatile: a provider that caches
             prompt prefixes caches each part (see ``SystemPrompt``).
-        tools: Any mix of :class:`ToolSource` instances, ``@tool`` functions,
+        tools: Any mix of `ToolSource` instances, ``@tool`` functions,
             and plain callables. Sub-agents join via ``sub.as_tool()``.
         output_type: Optional *default* output schema. Its presence lets the
             agent be run structured; it is not a mode flag.
         describe_step: Step-describer for user-facing narration; return
             ``None`` from it to hide a call. Defaults to a generic describer.
-        model_client: Escape hatch — bring your own :class:`ModelClient`.
+        model_client: Escape hatch — bring your own `ModelClient`.
         max_tool_result_chars: Loop safety bound, like ``max_iterations``:
             cap any single tool result's ``content`` at this many characters
             before it enters the conversation. Over-cap content is cut, a
@@ -238,10 +238,10 @@ class Agent:
             big file over MCP, a bulky vendor payload, a verbose sub-agent —
             can exceed the model's context window and kill the run with a
             non-retryable provider error.
-        workspace: A :class:`~throukit.Workspace`, or a (sync/async) function
+        workspace: A `throukit.Workspace`, or a (sync/async) function
             of the per-run context returning one (``None`` for none). The
             agent's own tools reach it through a
-            :class:`~throukit.WorkspaceTools` given the same spec; the loop
+            `throukit.WorkspaceTools` given the same spec; the loop
             uses it to spill oversized tool results to files and to keep
             cleared context recoverable. Resolved once per run.
         spill_threshold_chars: With a workspace, a tool result longer than
@@ -252,7 +252,7 @@ class Agent:
             25K characters.)
         reasoning: Provider-neutral reasoning ("thinking"): ``True`` on at
             the provider's default effort, an effort string (``"low"`` …
-            ``"max"``), ``False`` explicitly off, a :class:`Reasoning` for
+            ``"max"``), ``False`` explicitly off, a `Reasoning` for
             full control, or ``None`` (default) to send nothing. Reasoning
             blocks round-trip within the run automatically.
         context_clear_threshold_tokens: Loop-level context clearing for
@@ -266,7 +266,7 @@ class Agent:
             disables it; a provider's own context editing, when available,
             is the better tool.
         timeout_s: Wall-clock bound on the run, checked before each model
-            pass; exceeding it raises :class:`RunTimeoutError` (``timeout``
+            pass; exceeding it raises `RunTimeoutError` (``timeout``
             on the event stream). Complements ``max_iterations``: long runs
             need a time bound, not just a step bound.
         keep_recent_images: Image-aware context clearing for tools that
@@ -380,11 +380,11 @@ class Agent:
         is prior conversation turns (``Message`` objects or
         ``{"role", "content"}`` dicts) prepended before this call's
         ``prompt``, which is text or a list of text and image blocks
-        (:data:`Prompt`). ``control`` steers the run from outside it (cancel,
+        (`Prompt`). ``control`` steers the run from outside it (cancel,
         messages, a budget, call-time refusals, checkpoints; see
-        :class:`~throukit.RunControl`).
+        `throukit.RunControl`).
 
-        A failed model provider call raises :class:`throukit.ModelError`
+        A failed model provider call raises `throukit.ModelError`
         (check ``retryable`` for backoff) — never a provider SDK exception.
         """
         return await self._run_structured(
@@ -526,9 +526,9 @@ class Agent:
         exceptions propagate after an ``error`` event is emitted.
         ``history`` is prior conversation turns (``Message`` objects or
         ``{"role", "content"}`` dicts) prepended before ``prompt`` (text, or
-        text and image blocks: :data:`Prompt`).
+        text and image blocks: `Prompt`).
         ``control`` steers the run from outside it (see
-        :class:`~throukit.RunControl`).
+        `throukit.RunControl`).
         """
         trajectory: list[ToolCallRecord] = []
         sources: list[Source] = []
@@ -569,7 +569,7 @@ class Agent:
         control: Optional[RunControl] = None,
     ) -> AsyncIterator[AgentEvent]:
         """The loop. ``prompt`` ``None`` continues ``history`` as the run's
-        own transcript (:meth:`resume`) instead of starting a new turn."""
+        own transcript (`resume`) instead of starting a new turn."""
         client, model_id = resolve_model(self.model, self.model_client)
         started = time.monotonic()
         deadline = started + self.timeout_s if self.timeout_s is not None else None
@@ -983,7 +983,7 @@ class Agent:
         control: Optional[RunControl] = None,
     ) -> tuple[list[Optional[ToolResult]], list[asyncio.Future[None]]]:
         """Start one model turn's tool calls. Calls run concurrently, except
-        an ordered toolset's (see :class:`Toolset`), which run one at a time
+        an ordered toolset's (see `Toolset`), which run one at a time
         in emission order and stop at the first failure. Results land in the
         returned slots, in ``pending`` order, as the tasks finish."""
         slots: list[Optional[ToolResult]] = [None] * len(pending)

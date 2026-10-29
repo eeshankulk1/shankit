@@ -3,7 +3,7 @@
 A step-describer translates a raw tool call into a user-language step. It is
 a plain callable ``(tool_name, arguments, context) -> StepInfo | None``:
 
-- return a :class:`StepInfo` to narrate the call on the event stream,
+- return a `StepInfo` to narrate the call on the event stream,
 - return ``None`` to hide the call from the user entirely.
 
 The default describer produces a generic humanized title so narration works

@@ -6,7 +6,7 @@ Two reference styles, disambiguated by the presence of a colon:
   convention uvicorn and entry points use). Dotted attribute paths after the
   colon are supported (``"pkg.mod:Class.attr"``).
 - ``"short_name"`` — a live object explicitly registered in a
-  :class:`Registry` (connectors and other non-importables).
+  `Registry` (connectors and other non-importables).
 """
 
 from __future__ import annotations

@@ -64,7 +64,7 @@ async def evaluate(
 ) -> EvalReport:
     """Run every case against the target and score the results.
 
-    ``target`` is an :class:`Agent` (run with each case's input and context)
+    ``target`` is an `Agent` (run with each case's input and context)
     or any async callable ``(case) -> RunResult``. A case whose run raises is
     reported as an error, not a crash of the whole evaluation.
     """

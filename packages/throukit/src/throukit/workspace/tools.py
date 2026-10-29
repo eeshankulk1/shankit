@@ -17,8 +17,8 @@ Output shapes:
   agent can look at what it made (a chart, a rendered page) or was given.
 - ``Write``/``Edit``: a one-line confirmation.
 
-Subclass hooks: :meth:`WorkspaceTools.after_tool` sees every call's result
-(and the raw :class:`ExecResult` for ``Bash``) — the place to sync files
+Subclass hooks: `WorkspaceTools.after_tool` sees every call's result
+(and the raw `ExecResult` for ``Bash``) — the place to sync files
 out of the workspace, record a work log, or attach artifacts.
 """
 
@@ -61,7 +61,7 @@ class WorkspaceTools(ToolSource):
     """File and shell tools over a workspace.
 
     Args:
-        workspace: A :class:`Workspace`, or a (sync/async) function of the
+        workspace: A `Workspace`, or a (sync/async) function of the
             per-run context returning one — the same spec ``Agent(workspace=)``
             takes, so both resolve the same workspace for a run.
         tools: Which of ``Bash``/``Read``/``Write``/``Edit`` to offer.

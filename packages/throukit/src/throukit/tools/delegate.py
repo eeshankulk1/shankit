@@ -4,7 +4,7 @@ The Claude Code sub-agent model on throukit's primitives: the parent agent
 sees ONE tool whose description lists the available sub-agents (name + what
 each is for), picks one, and hands it a self-contained task. Adding a
 sub-agent grows the description, not the tool list. Sub-agents are usually
-file-defined (``agents/*.md``, see :meth:`DelegateToolSource.from_directory`)
+file-defined (``agents/*.md``, see `DelegateToolSource.from_directory`)
 and run with the parent's per-run context, so they share whatever it
 carries — the acting user, and the same workspace when their
 ``Agent(workspace=)`` resolves from it — and can hand back a file path
@@ -26,8 +26,8 @@ prompt doesn't have to):
 - **Roll-up**: the sub-agent's usage, sources, artifacts, and ``truncated``
   flag ride the tool result into the parent run's accounting.
 
-A roster entry is a :class:`Delegate`. :class:`AgentDelegate` wraps a
-throukit :class:`~throukit.Agent`; implement :class:`Delegate` directly to put
+A roster entry is a `Delegate`. `AgentDelegate` wraps a
+throukit `throukit.Agent`; implement `Delegate` directly to put
 anything else behind the same tool (an agent with its own post-processing,
 a remote agent).
 """
@@ -81,7 +81,7 @@ class Delegate(abc.ABC):
 
 
 class AgentDelegate(Delegate):
-    """A throukit :class:`~throukit.Agent` as a delegate: runs it with
+    """A throukit `throukit.Agent` as a delegate: runs it with
     ``output_type=str`` and returns its final answer text."""
 
     def __init__(
@@ -113,13 +113,13 @@ class DelegateToolSource(ToolSource):
     """Exposes a roster of delegates through one tool.
 
     Args:
-        delegates: :class:`Delegate`s and/or :class:`~throukit.Agent`s
-            (wrapped in :class:`AgentDelegate`).
+        delegates: `Delegate`s and/or `throukit.Agent`s
+            (wrapped in `AgentDelegate`).
         tool_name: The tool's name (default ``delegate``).
         max_calls_per_delegate: Per-run budget per delegate.
         extra_properties: Additional JSON-schema properties on the tool's
             input (e.g. a ``mode`` your delegates branch on). They reach
-            :meth:`Delegate.run` via ``arguments``.
+            `Delegate.run` via ``arguments``.
         intro: The first paragraph of the tool description (the roster
             is appended to it).
     """
@@ -160,7 +160,7 @@ class DelegateToolSource(ToolSource):
         **kwargs: Any,
     ) -> DelegateToolSource:
         """A roster of every ``*.md`` agent file in ``directory`` (see
-        :func:`~throukit.load_agents`; ``agent_kwargs`` are passed through,
+        `throukit.load_agents`; ``agent_kwargs`` are passed through,
         e.g. ``{"workspace": ...}`` so sub-agents share the parent's
         workspace)."""
         from ..files import load_agents

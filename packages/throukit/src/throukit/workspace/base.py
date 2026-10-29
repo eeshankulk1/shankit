@@ -1,9 +1,9 @@
 """The workspace seam: a place an agent can keep files and run commands.
 
-A :class:`Workspace` is the agent's computer — a filesystem, and optionally a
+A `Workspace` is the agent's computer — a filesystem, and optionally a
 shell. It is a contract, not a vendor: a hosted sandbox (a microVM per user),
 a container, or a local directory all implement the same three methods. The
-loop and the shipped file/shell tools (:class:`~throukit.WorkspaceTools`) only
+loop and the shipped file/shell tools (`throukit.WorkspaceTools`) only
 ever see this contract, so switching vendors never touches agent code.
 
 ``exec`` is optional: a workspace without it is legal and offers file tools
@@ -16,7 +16,7 @@ per-run context::
     agent = Agent(..., workspace=lambda ctx: sandboxes.for_user(ctx.user_id))
 
 Paths: absolute paths are used as-is; ``~`` and relative paths resolve
-against :attr:`Workspace.home`. :attr:`Workspace.tmp` is scratch space the
+against `Workspace.home`. `Workspace.tmp` is scratch space the
 loop may use (e.g. to spill oversized tool results to files).
 """
 
@@ -52,7 +52,7 @@ class Workspace(abc.ABC):
     """Files (required) and a shell (optional) for an agent to work in.
 
     Implementations must make ``write_file`` create missing parent
-    directories, and should raise :class:`FileNotFoundError` from
+    directories, and should raise `FileNotFoundError` from
     ``read_file`` for a missing path (``IsADirectoryError`` for a
     directory) so the shipped tools can report it to the model plainly.
     """
@@ -92,7 +92,7 @@ class Workspace(abc.ABC):
 
     def resolve(self, path: str) -> str:
         """An absolute, normalized path: ``~`` and relative paths resolve
-        against :attr:`home`."""
+        against `home`."""
         path = path.strip()
         if path == "~" or path.startswith("~/"):
             path = self.home + path[1:]

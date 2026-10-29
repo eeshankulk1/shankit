@@ -53,7 +53,7 @@ class AnthropicModel(ModelClient):
     Reasoning: ``ModelRequest.reasoning`` maps to ``thinking`` (adaptive,
     or a fixed ``budget_tokens``, or disabled) plus ``output_config.effort``.
     ``thinking`` and ``redacted_thinking`` blocks come back as
-    :class:`ReasoningBlock` and are re-sent verbatim on later passes, which
+    `ReasoningBlock` and are re-sent verbatim on later passes, which
     tool-use continuations with thinking on require. With reasoning on,
     ``temperature`` is not sent (thinking models reject sampling
     parameters), and a pass that forces a tool (structured output) turns
@@ -62,14 +62,14 @@ class AnthropicModel(ModelClient):
 
     Newer models reject some of these shapes (``thinking: disabled``, a
     ``budget_tokens`` budget, forced ``tool_choice``, ``temperature``);
-    :func:`model_rules` says what each model takes instead, so the same
-    :class:`ModelRequest` works on every model: reasoning off is
+    `model_rules` says what each model takes instead, so the same
+    `ModelRequest` works on every model: reasoning off is
     ``between_tools`` on Claude Sonnet 5.5, and low effort on the models
     that always think (Claude Opus 5.5, Fable 5.1); a budget becomes
     adaptive thinking; a forced tool goes out as ``auto`` where forcing is
     rejected (the reasoning then stays on, with nothing to conflict with).
 
-    Native toolsets: tools whose :class:`~throukit.tools.base.Toolset` has
+    Native toolsets: tools whose `throukit.tools.base.Toolset` has
     an ``"anthropic"`` entry are sent as that entry, once, instead of as
     member tools (e.g. ``browser_toolset_20260801``). Claude's calls to a
     member come back carrying ``toolset_name``, kept on
@@ -77,12 +77,12 @@ class AnthropicModel(ModelClient):
     rejects a result that drops it.
 
     Tool results may be text or a list of text, image, and provider blocks;
-    a :class:`ProviderBlock` from this provider (e.g. ``browser_state``) is
+    a `ProviderBlock` from this provider (e.g. ``browser_state``) is
     sent verbatim, one from any other provider as its text fallback.
 
     ``extra_request_kwargs`` is an escape hatch merged (last) into every
     ``messages.create``/``messages.stream`` call — for provider parameters
-    the neutral :class:`ModelRequest` doesn't model. Keys collide with the
+    the neutral `ModelRequest` doesn't model. Keys collide with the
     generated ones at the caller's own risk.
     """
 

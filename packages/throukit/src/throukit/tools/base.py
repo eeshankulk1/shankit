@@ -32,7 +32,7 @@ NOT_EXECUTED = "Not executed: an earlier action in this turn failed."
 class Toolset(BaseModel):
     """A group of tools a provider may offer natively as one entry.
 
-    Each member is an ordinary :class:`ToolDef` (name, description, schema:
+    Each member is an ordinary `ToolDef` (name, description, schema:
     the provider-neutral mirror) carrying the same ``Toolset``. A model
     client with a ``native`` entry for its provider sends that entry once in
     place of the members (e.g. Anthropic's ``{"type":
@@ -55,7 +55,7 @@ class Toolset(BaseModel):
 
 class ToolDef(BaseModel):
     """A tool definition in Anthropic tool-use shape (plus, for a member of
-    a native toolset, the :class:`Toolset` it belongs to)."""
+    a native toolset, the `Toolset` it belongs to)."""
 
     name: str
     description: str = ""
@@ -98,7 +98,7 @@ class ToolSource(abc.ABC):
     framework never reads inside it; a source may use it to resolve *whose*
     credentials to use without the loop knowing what a "user" is.
 
-    Error contract: raise :class:`throukit.ToolError` from ``execute`` (or
+    Error contract: raise `throukit.ToolError` from ``execute`` (or
     return ``ToolResult(is_error=True)``) for a controlled, model-visible
     failure. Any other exception is sanitized by the loop before the model
     sees it.
@@ -114,7 +114,7 @@ class ToolSource(abc.ABC):
     ) -> ToolResult:
         """Execute one tool by name.
 
-        Must raise :class:`throukit.ToolNotFoundError` for unknown names.
+        Must raise `throukit.ToolNotFoundError` for unknown names.
         """
 
 

@@ -74,7 +74,7 @@ class ComposioConnector(Connector):
             accept it (any version that raises ``ToolVersionRequiredError``
             is).
 
-    Subclass points: override :meth:`transform_result` to post-process
+    Subclass points: override `transform_result` to post-process
     successful tool payloads before the model sees them (e.g. slim bulky
     vendor responses).
     """
@@ -249,7 +249,7 @@ class ComposioConnector(Connector):
 
         When a ``user_id`` extractor is configured (multi-tenant), the
         connection must belong to the user ``context`` resolves to —
-        polling someone else's connection raises :class:`PermissionError`,
+        polling someone else's connection raises `PermissionError`,
         so a leaked or guessed connection id cannot be linked cross-tenant.
         """
         client = self._get_client()

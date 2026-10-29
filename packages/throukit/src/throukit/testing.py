@@ -1,6 +1,6 @@
 """Test doubles for code built on throukit.
 
-:class:`ScriptedModel` is a provider-neutral fake :class:`ModelClient`. It
+`ScriptedModel` is a provider-neutral fake `ModelClient`. It
 replays a script, one turn per model call - text (streamed as deltas), tool
 calls, reasoning, structured output, usage, raw content blocks, or a raised
 error - and records every request the agent loop sends, so a test can
@@ -16,7 +16,7 @@ the answers::
     assert model.requests[1].messages[-1].content[0].content == "shipped"
 
 A script that disagrees with the agent (a failed ``expect``, more calls than
-turns) raises :class:`ScriptFailure`, which the agent loop cannot turn into
+turns) raises `ScriptFailure`, which the agent loop cannot turn into
 a ``ModelError`` or an ``error`` event.
 """
 
@@ -104,14 +104,14 @@ class Turn:
             script token counts.
         stop_reason: Defaults to ``"tool_use"`` when the turn calls a tool,
             else ``"end_turn"``. Script ``"max_tokens"`` to test truncation.
-        error: Raised instead of responding: a :class:`~throukit.ModelError`
+        error: Raised instead of responding: a `throukit.ModelError`
             (``model_error_for_status("anthropic", 429)`` is exactly what the
             shipped clients raise for a rate limit, ``529`` for overloaded)
             or any exception. With ``text`` too, ``stream()`` yields the text
             before raising - a stream that fails midway.
-        expect: Called with this call's :class:`ModelRequest` before the turn
+        expect: Called with this call's `ModelRequest` before the turn
             plays. Assert inside it, or return ``False``; either fails the
-            test with :class:`ScriptFailure` and a summary of the request.
+            test with `ScriptFailure` and a summary of the request.
     """
 
     text: str = ""
@@ -125,9 +125,9 @@ class Turn:
     expect: Optional[Callable[[ModelRequest], Any]] = None
 
 
-#: One script entry: a :class:`Turn`, or a shorthand - a ``str`` (a
+#: One script entry: a `Turn`, or a shorthand - a ``str`` (a
 #: text-only turn), an exception (``Turn(error=...)``), or a
-#: :class:`ModelResponse` returned verbatim.
+#: `ModelResponse` returned verbatim.
 ScriptItem = Union[Turn, str, BaseException, ModelResponse]
 
 
@@ -137,8 +137,8 @@ class ScriptedModel(ModelClient):
     Works for both run modes (``complete`` and ``stream``), as an agent's
     ``model_client=``, or behind a spec via
     ``register_provider("scripted", lambda: model)``. Every request is
-    recorded on :attr:`requests` as a snapshot of what was sent. A call past
-    the end of the script raises :class:`ScriptFailure`.
+    recorded on `requests` as a snapshot of what was sent. A call past
+    the end of the script raises `ScriptFailure`.
 
     One model plays one script in call order, so give agents that run
     concurrently (parallel sub-agents) their own ``ScriptedModel``.

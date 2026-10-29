@@ -129,7 +129,7 @@ def tool(
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Any:
-    """Decorator that turns a function into a :class:`FunctionTool`.
+    """Decorator that turns a function into a `FunctionTool`.
 
     Usage::
 

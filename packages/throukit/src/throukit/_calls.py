@@ -2,7 +2,7 @@
 
 The tool seam (``list_tools``/``execute``) stays two methods over the opaque
 per-run context. This is the one extra channel, and it is optional: while a
-tool executes, :func:`current_tool_call` returns the call it is serving, so
+tool executes, `current_tool_call` returns the call it is serving, so
 a long-running tool can push events into the parent run's stream *while it
 works* (a delegated sub-agent's steps, a script's progress) instead of only
 when it returns, and can keep per-run state (a budget, a dedup set) without
@@ -39,9 +39,9 @@ class ToolCallContext:
             your source (e.g. ``id(self)``).
         pass_index: Which model pass of the run made the call (1-based):
             calls with the same index came from one model response.
-        agent: The :class:`~throukit.Agent` whose loop is executing the call
-            (what :class:`~throukit.CloneToolSource` clones).
-        control: The run's :class:`~throukit.RunControl`, if it has one.
+        agent: The `throukit.Agent` whose loop is executing the call
+            (what `throukit.CloneToolSource` clones).
+        control: The run's `throukit.RunControl`, if it has one.
     """
 
     tool_use_id: str
