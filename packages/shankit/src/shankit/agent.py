@@ -21,7 +21,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -511,14 +511,14 @@ class Agent:
 
     # --------------------------------------------------------------- stream
 
-    async def stream(
+    def stream(
         self,
         prompt: Prompt,
         *,
         context: Any = None,
         history: Optional[Sequence[Any]] = None,
         control: Optional[RunControl] = None,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncGenerator[AgentEvent, None]:
         """Run as a live conversation, yielding the typed event stream.
 
         The stream ends with a ``done`` event, or an ``error`` event if the
@@ -529,29 +529,46 @@ class Agent:
         text and image blocks: :data:`Prompt`).
         ``control`` steers the run from outside it (see
         :class:`~shankit.RunControl`).
+
+        Close a stream you stop reading early (``aclose()``, or
+        ``contextlib.aclosing``): closing cancels the run's in-flight tools.
         """
-        trajectory: list[ToolCallRecord] = []
-        sources: list[Source] = []
-        artifacts: list[Artifact] = []
-        with _tracing.span("shankit.agent.stream", agent=self.name, model=self.model):
-            try:
-                async for event in self._loop(
-                    prompt,
-                    context=context,
-                    output_type=None,
-                    streaming=True,
-                    trajectory=trajectory,
-                    sources=sources,
-                    artifacts=artifacts,
-                    history=history,
-                    control=control,
-                ):
-                    yield event
-            except ShankitError as exc:
-                yield error_event_for(exc)
-            except Exception as exc:
-                yield error_event_for(exc)
-                raise
+        return _tracing.traced(
+            "shankit.agent.stream",
+            self._stream(prompt, context=context, history=history, control=control),
+            agent=self.name,
+            model=self.model,
+        )
+
+    async def _stream(
+        self,
+        prompt: Prompt,
+        *,
+        context: Any,
+        history: Optional[Sequence[Any]],
+        control: Optional[RunControl],
+    ) -> AsyncGenerator[AgentEvent, None]:
+        loop = self._loop(
+            prompt,
+            context=context,
+            output_type=None,
+            streaming=True,
+            trajectory=[],
+            sources=[],
+            artifacts=[],
+            history=history,
+            control=control,
+        )
+        try:
+            async for event in loop:
+                yield event
+        except ShankitError as exc:
+            yield error_event_for(exc)
+        except Exception as exc:
+            yield error_event_for(exc)
+            raise
+        finally:
+            await loop.aclose()
 
     # ----------------------------------------------------------- the loop
 
@@ -567,7 +584,7 @@ class Agent:
         artifacts: list[Artifact],
         history: Optional[Sequence[Any]] = None,
         control: Optional[RunControl] = None,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncGenerator[AgentEvent, None]:
         """The loop. ``prompt`` ``None`` continues ``history`` as the run's
         own transcript (:meth:`resume`) instead of starting a new turn."""
         client, model_id = resolve_model(self.model, self.model_client)
@@ -723,6 +740,7 @@ class Agent:
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 reasoning=reasoning,
+                agent=self.name,
             )
             force_output = False
 
@@ -754,8 +772,10 @@ class Agent:
                 raise ModelError("The model call failed.") from exc
 
             passes += 1
-            total_usage.add(response.usage)
-            yield UsageEvent(usage=response.usage)
+            # Tagged with its model, so a run that mixes models prices right.
+            call_usage = response.usage.for_model(model_id)
+            total_usage.add(call_usage)
+            yield UsageEvent(usage=call_usage)
             last_prompt_tokens = (
                 response.usage.input_tokens
                 + response.usage.cache_read_tokens

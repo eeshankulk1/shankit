@@ -63,7 +63,8 @@ Agent(
 ```python
 result.output      # the ANSWER: validated schema instance, or final text for output_type=str
 result.text        # the TRANSCRIPT: every assistant text pass, joined with blank lines
-result.usage       # Usage(input_tokens, output_tokens, ...), including sub-agents
+result.usage       # Usage(input_tokens, output_tokens, ...), including sub-agents;
+                   # usage.per_model() splits it by model, to price a mixed run
 result.trajectory  # list[ToolCallRecord] — every tool call, for evals
 result.sources     # list[Source] surfaced during the run
 result.truncated   # True if any pass (or sub-agent) stopped at the token limit,
@@ -358,7 +359,7 @@ outside it — always at the loop's boundaries, never mid-call:
 | | |
 |---|---|
 | `cancel()` | Ends the run before its next model pass, or before the tools of a pass run; `done.stopped == "cancelled"`, usage and transcript kept |
-| `send(text)` | Delivered with the next tool results, or as one more turn if the model was finishing |
+| `send(text, on_delivered=None)` | Delivered with the next tool results, or as one more turn if the model was finishing; `on_delivered` runs when the loop hands it over. `undelivered()` takes the messages not yet handed over, to send them on to a run that continues this one |
 | `budget=Budget(...)` | Soft limits (passes, wall clock, priced cost): a last pass with tools off, then `stopped == "budget"` |
 | `refuse=fn` | A call-time veto `(name, args) -> text or None`; the tool list is unchanged |
 | `checkpoint=fn` | Called with the transcript at every boundary; `agent.resume(transcript)` continues it, closing any call left in flight with an "interrupted" result |
@@ -434,7 +435,11 @@ model="openai:gpt-4.1"
 
 - The **provider prefix is required** — neutrality over convenience; there is no
   silent default vendor.
-- `register_provider("myvendor", factory)` extends the prefix set.
+- `register_provider("myvendor", factory)` extends the prefix set and returns
+  the factory it replaced; `get_provider(name)` reads one. Wrap a provider to
+  put something (metering, logging) around every client it makes:
+  `register_provider("anthropic", lambda: Metered(inner()))`. A wrapper can tell
+  which agent made a call from `request.agent`.
 - Passing `model_client=` to `Agent` bypasses the registry entirely — bring your
   own client, and `model` becomes a bare model id.
 
@@ -491,9 +496,14 @@ async def test_support_agent_checks_the_order():
   into a calm `error` event. `assert_exhausted()` catches the opposite case:
   turns that never ran.
 - **Behind a spec.** For code that builds its own agents,
-  `register_provider("anthropic", lambda: model)` routes every
-  `"anthropic:..."` agent to the script. One model plays one script in call
-  order, so give agents that run concurrently their own.
+  `with use_model(model):` (from `shankit.testing`) routes every
+  `"anthropic:..."` and `"openai:..."` agent to the script and puts the real
+  providers back after. One model plays one script in call order, so give
+  agents that run concurrently their own; `request.agent` names the agent that
+  sent each request.
+- **Tools outside a run.** `with tool_call(emit=events.append):` makes
+  `current_tool_call()` return a call, so a tool that emits events or keeps
+  per-run state can be tested on its own.
 
 ## The event stream
 

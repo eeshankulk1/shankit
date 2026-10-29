@@ -18,18 +18,25 @@ the answers::
 A script that disagrees with the agent (a failed ``expect``, more calls than
 turns) raises :class:`ScriptFailure`, which the agent loop cannot turn into
 a ``ModelError`` or an ``error`` event.
+
+:func:`use_model` makes every ``"provider:model"`` spec resolve to one
+client for a while (agents built deep inside an app, where no
+``model_client=`` can be passed), and :func:`tool_call` runs a tool's code
+as if the loop were executing it (:func:`~shankit.current_tool_call`).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional, Union
 
 from pydantic_core import to_jsonable_python
 
+from ._calls import _CURRENT, ToolCallContext
 from .agent import OUTPUT_TOOL_NAME
 from .messages import (
     ContentBlock,
@@ -49,9 +56,18 @@ from .models.base import (
     ModelTextDelta,
     system_text,
 )
+from .models.registry import _unregister_provider, register_provider
 from .usage import Usage
 
-__all__ = ["ScriptFailure", "ScriptItem", "ScriptedModel", "ToolCall", "Turn"]
+__all__ = [
+    "ScriptFailure",
+    "ScriptItem",
+    "ScriptedModel",
+    "ToolCall",
+    "Turn",
+    "tool_call",
+    "use_model",
+]
 
 StopReason = Literal["end_turn", "tool_use", "max_tokens", "other"]
 
@@ -318,3 +334,55 @@ def _describe_block(block: Any) -> str:
 
 def _clip(text: str, limit: int = 200) -> str:
     return repr(text if len(text) <= limit else text[:limit] + "...")
+
+
+@contextmanager
+def use_model(
+    model: ModelClient, *, providers: Iterable[str] = ("anthropic", "openai")
+) -> Iterator[ModelClient]:
+    """Resolve every ``"<provider>:..."`` spec of ``providers`` to ``model``
+    inside the block, then put the real providers back::
+
+        with use_model(ScriptedModel([...])) as model:
+            await app.answer("hi")
+        model.assert_exhausted()
+    """
+    saved = {name: register_provider(name, lambda: model) for name in providers}
+    try:
+        yield model
+    finally:
+        for name, factory in saved.items():
+            if factory is not None:
+                register_provider(name, factory)
+            else:
+                _unregister_provider(name)
+
+
+@contextmanager
+def tool_call(
+    *,
+    tool_name: str = "tool",
+    tool_use_id: str = "call_1",
+    step_id: str = "s1",
+    agent_name: str = "agent",
+    emit: Callable[[Any], None] = lambda event: None,
+    **fields: Any,
+) -> Iterator[ToolCallContext]:
+    """Make :func:`~shankit.current_tool_call` return a call inside the
+    block, for testing a tool outside an agent run. Events the tool emits go
+    to ``emit`` (pass ``events.append`` to keep them); other
+    :class:`~shankit.ToolCallContext` fields (``run_state``, ``control``,
+    ...) pass through."""
+    call = ToolCallContext(
+        tool_use_id=tool_use_id,
+        tool_name=tool_name,
+        step_id=step_id,
+        agent_name=agent_name,
+        emit=emit,
+        **fields,
+    )
+    token = _CURRENT.set(call)
+    try:
+        yield call
+    finally:
+        _CURRENT.reset(token)

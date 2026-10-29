@@ -99,7 +99,7 @@ class WorkspaceTools(ToolSource):
         if ws is None:
             return []
         defs = {
-            "Bash": self._bash_def(ws),
+            "Bash": self.bash_def(ws),
             "Read": _READ_DEF,
             "Write": _WRITE_DEF,
             "Edit": _EDIT_DEF,
@@ -148,16 +148,26 @@ class WorkspaceTools(ToolSource):
     async def run_command(
         self, workspace: Workspace, arguments: dict[str, Any], context: Any
     ) -> ExecResult:
+        """Hook: run one ``Bash`` call. Override to add to its environment
+        or wrap the command; ``command_timeout`` and ``resolve_env`` give
+        the defaults."""
         command = str(arguments.get("command") or "").strip()
         if not command:
             raise ToolError("Bash requires a non-empty `command`.")
-        timeout = _clamp_timeout(
-            arguments.get("timeout_s"), self.default_timeout_s, self.max_timeout_s
-        )
-        env = await self._resolve_env(context)
+        timeout = self.command_timeout(arguments)
+        env = await self.resolve_env(context)
         return await workspace.exec(command, timeout=timeout, env=env)
 
-    async def _resolve_env(self, context: Any) -> Optional[Mapping[str, str]]:
+    def command_timeout(self, arguments: dict[str, Any]) -> float:
+        """The timeout for a ``Bash`` call: what the model asked for
+        (``timeout_s``), or the default, within ``max_timeout_s``."""
+        return _clamp_timeout(
+            arguments.get("timeout_s"), self.default_timeout_s, self.max_timeout_s
+        )
+
+    async def resolve_env(self, context: Any) -> Optional[Mapping[str, str]]:
+        """The ``env`` for this run's commands (resolved when it is a
+        function of the per-run context)."""
         if self.env is None or isinstance(self.env, Mapping):
             return self.env
         resolved = self.env(context)
@@ -165,7 +175,9 @@ class WorkspaceTools(ToolSource):
             resolved = await resolved
         return resolved
 
-    def _bash_def(self, ws: Workspace) -> ToolDef:
+    def bash_def(self, ws: Workspace) -> ToolDef:
+        """Hook: the ``Bash`` tool's definition. Override to extend its
+        description or schema (for options your ``run_command`` reads)."""
         return ToolDef(
             name="Bash",
             description=(

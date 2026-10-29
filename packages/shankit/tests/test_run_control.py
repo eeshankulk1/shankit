@@ -250,3 +250,43 @@ async def test_resume_of_a_structured_run_that_recorded_its_result_makes_no_call
     again = await agent.resume(first.messages, output_type=Out)
     assert again.output == Out(n=3)
     assert fake.requests == []
+
+
+async def test_send_calls_on_delivered_when_the_model_gets_it(make_agent):
+    from shankit import RunControl
+
+    delivered: list[str] = []
+    control = RunControl()
+
+    @tool
+    async def wait() -> str:
+        """Waits."""
+        control.send("also check the attic", on_delivered=lambda: delivered.append("attic"))
+        assert delivered == []
+        return "waited"
+
+    agent, fake = make_agent([tool_call_response("wait", {}), text_response("done")], tools=[wait])
+    await agent.run("go", output_type=str, control=control)
+
+    assert delivered == ["attic"]
+    assert "also check the attic" in str(fake.requests[1].messages[-1].content)
+
+
+def test_undelivered_takes_messages_without_delivering():
+    from shankit import RunControl
+
+    delivered: list[str] = []
+    control = RunControl()
+    control.send("one", on_delivered=lambda: delivered.append("one"))
+    control.send("two")
+
+    taken = control.undelivered()
+    assert [text for text, _ in taken] == ["one", "two"]
+    assert delivered == []
+    assert not control.has_messages
+
+    successor = RunControl()
+    for text, on_delivered in taken:
+        successor.send(text, on_delivered=on_delivered)
+    assert successor.drain() == ["one", "two"]
+    assert delivered == ["one"]
