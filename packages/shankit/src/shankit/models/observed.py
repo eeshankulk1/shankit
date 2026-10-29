@@ -110,8 +110,9 @@ class ObservedModel(ModelClient):
                     response = event.response
                 yield event
         except BaseException as exc:
-            # Closed once the response was in: the call itself succeeded.
-            done = response is not None and isinstance(exc, GeneratorExit)
+            # Once the response is in, the call itself succeeded (it was
+            # paid for), however the stream ended after it.
+            done = response is not None
             self._report(
                 clock.call(
                     request,

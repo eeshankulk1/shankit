@@ -76,6 +76,26 @@ async def test_observed_stream_closed_after_response_counts_as_ok():
     assert [c.ok for c in calls] == [True]
 
 
+async def test_observed_stream_failing_after_response_counts_as_ok():
+    class _ThenFails(ScriptedModel):
+        async def stream(self, request):
+            async for event in super().stream(request):
+                yield event
+            raise RuntimeError("teardown failed")
+
+    calls: list[ModelCall] = []
+    with pytest.raises(RuntimeError):
+        [
+            e
+            async for e in ObservedModel(_ThenFails(["done"]), after=calls.append).stream(
+                _request()
+            )
+        ]
+    (call,) = calls
+    assert call.ok
+    assert call.error is None
+
+
 async def test_observed_stream_closed_before_response_is_cancelled():
     calls: list[ModelCall] = []
     stream = ObservedModel(ScriptedModel(["one two three"]), after=calls.append).stream(_request())

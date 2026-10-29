@@ -677,9 +677,11 @@ where the original text had a gap (flagged ⚠):
     with a provider in front of it, so they ship, sized to what throu uses:
     - `shankit.models.ObservedModel(inner, before=, after=)`. `before` may
       raise to refuse a call; `after` gets a `ModelCall` (timing, first-text
-      latency, response or error, `cancelled`). A stream closed after its
-      response counts as a success, one closed before it as cancelled, one
-      that ends without a response as an error with `error=None`.
+      latency, response or error, `cancelled`). A stream counts as a success
+      once its response has arrived, however it ends after (the call was
+      paid for, and a spend cap must charge it); one closed before it as
+      cancelled; one that ends without a response as an error with
+      `error=None`.
     - `shankit.testing.Cassette` / `CassetteModel` / `CassetteMiss`. Keys
       mask UUIDs and provider tool-call ids and leave out reasoning
       signatures, cache marks and `request.agent` by default;
