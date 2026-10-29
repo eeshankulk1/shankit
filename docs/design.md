@@ -634,7 +634,8 @@ where the original text had a gap (flagged ⚠):
     - `Usage.by_model` splits a run's usage by model: the loop tags each
       model call, and adding usages merges the split, so a sub-agent on a
       cheaper model prices at its own rates (`per_model()`; untagged usage
-      reports under `None`). `Budget.cost` prices the same way.
+      reports under `None`). `Budget.cost` gets that cumulative usage, split
+      included, so its callback can price `per_model()` part by part.
     - `get_provider()`, and `register_provider()` returning the factory it
       replaced, make wrapping or swapping a provider public;
       `shankit.testing` gains `use_model()` and `tool_call()`.

@@ -359,7 +359,7 @@ outside it — always at the loop's boundaries, never mid-call:
 | | |
 |---|---|
 | `cancel()` | Ends the run before its next model pass, or before the tools of a pass run; `done.stopped == "cancelled"`, usage and transcript kept |
-| `send(text, on_delivered=None)` | Delivered with the next tool results, or as one more turn if the model was finishing; `on_delivered` runs when the loop hands it over. `undelivered()` takes the messages not yet handed over, to send them on to a run that continues this one |
+| `send(text, *, on_delivered=None)` | Delivered with the next tool results, or as one more turn if the model was finishing; `on_delivered` runs when the loop hands it over. `undelivered()` takes the messages not yet handed over, to send them on to a run that continues this one |
 | `budget=Budget(...)` | Soft limits (passes, wall clock, priced cost): a last pass with tools off, then `stopped == "budget"` |
 | `refuse=fn` | A call-time veto `(name, args) -> text or None`; the tool list is unchanged |
 | `checkpoint=fn` | Called with the transcript at every boundary; `agent.resume(transcript)` continues it, closing any call left in flight with an "interrupted" result |
@@ -517,7 +517,7 @@ generates from.
 | `step` | `id`, `title`, `detail`, `phase`, `status` (`running`/`done`/`error`), `agent`, `worker` — user-facing narration; `agent` names the delegated sub-agent the step belongs to, `None` for the running agent itself; `worker` is the clone that took it, `None` for the top-level run |
 | `worker` | `id`, `title`, `status` (`running`, then `done`/`partial`/`failed`/`stopped`/`background`), `batch` — a clone's lifecycle in the stream of the run that spawned it |
 | `source` | `source` — a citation surfaced by a tool |
-| `usage` | `usage` — token usage for one model pass or sub-agent (they sum to `done.usage`) |
+| `usage` | `usage` — token usage for one model pass or sub-agent (they sum to `done.usage`); `usage.by_model` names the model of each pass |
 | `done` | `text`, `output`, `usage`, `truncated`, `stopped` (`budget`/`cancelled` when a `RunControl` ended it early) — terminal success. `messages` also rides the event (every message the run added) but is in-process only — excluded from serialization, never on the SSE wire or in the generated TS types |
 | `error` | `message`, `code`, `retryable` — terminal failure (human-safe message) |
 
@@ -539,6 +539,10 @@ Observability is first-class and **user-facing**, not just dev tracing:
   renders as "what the agent is doing."
 - **OpenTelemetry** spans (`pip install shankit[otel]`) are available and
   orthogonal — developer tracing that never mixes with the user-facing steps.
+  `stream()`'s span is current only while the run works, never across a
+  `yield`, so a stream you abandon and close from another task detaches cleanly.
+  Close a stream you stop reading early (`aclose()`): that cancels its in-flight
+  tools.
 
 ## The uniform error contract
 

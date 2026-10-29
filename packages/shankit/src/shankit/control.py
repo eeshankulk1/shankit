@@ -30,6 +30,7 @@ always at the loop's own boundaries (cooperative, never mid-call):
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -37,6 +38,8 @@ from typing import Any, Optional, Union
 
 from .messages import Message
 from .usage import Usage
+
+logger = logging.getLogger("shankit")
 
 __all__ = ["Budget", "RunControl"]
 
@@ -167,11 +170,15 @@ class RunControl:
 
     def drain(self) -> list[str]:
         """Take every undelivered message, calling each one's
-        ``on_delivered`` (the loop calls this)."""
+        ``on_delivered`` (the loop calls this). A callback that raises is
+        logged and skipped: it cannot end the run or lose the messages."""
         taken = self.undelivered()
         for _, on_delivered in taken:
             if on_delivered is not None:
-                on_delivered()
+                try:
+                    on_delivered()
+                except Exception:
+                    logger.exception("RunControl.send on_delivered callback failed")
         return [text for text, _ in taken]
 
     def undelivered(self) -> list[tuple[str, Optional[Delivered]]]:

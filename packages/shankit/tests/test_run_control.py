@@ -290,3 +290,19 @@ def test_undelivered_takes_messages_without_delivering():
         successor.send(text, on_delivered=on_delivered)
     assert successor.drain() == ["one", "two"]
     assert delivered == ["one"]
+
+
+def test_drain_survives_a_failing_on_delivered_callback():
+    from shankit import RunControl
+
+    delivered: list[str] = []
+
+    def boom() -> None:
+        raise RuntimeError("callback bug")
+
+    control = RunControl()
+    control.send("one", on_delivered=boom)
+    control.send("two", on_delivered=lambda: delivered.append("two"))
+
+    assert control.drain() == ["one", "two"]
+    assert delivered == ["two"]
