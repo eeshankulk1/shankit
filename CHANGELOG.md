@@ -58,8 +58,7 @@ anything under `throukit.experimental` may change in any release.
 
 ## 0.1.0 - not yet published
 
-The first version, built inside [Throu](https://throu.ai) and used there in
-production before any public release.
+The first version.
 
 - `Agent` with two run modes over one loop: `run()` for a typed, validated
   result and `stream()` for a typed event stream, with conversation history,

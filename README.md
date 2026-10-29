@@ -8,7 +8,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Typed](https://img.shields.io/badge/typed-pyright-blue.svg)](pyproject.toml)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#project-status)
 
 [Docs](docs/README.md) · [Getting started](docs/getting-started.md) · [Concepts](docs/concepts.md) · [Examples](examples) · [Changelog](CHANGELOG.md)
 
@@ -18,7 +17,7 @@
 
 Most agent frameworks put the loop at the center and leave "where do the tools come from, and whose account do they act on" to you. Throukit treats that boundary, the **integration seam**, as part of the framework: one tool format, one error contract, one per-run context, one event stream. It never decides how you authenticate.
 
-The core is one agent with two run modes and a two-method tool interface. Around it sit the pieces a real product needs: agents defined in Markdown files, sub-agents, durable runs with approval pauses, evals, and a typed TypeScript client. Throukit runs the agent behind [Throu](https://throu.ai) in production.
+The core is one agent with two run modes and a two-method tool interface. Around it sit the pieces a real product needs: agents defined in Markdown files, sub-agents, durable runs with approval pauses, evals, and a typed TypeScript client.
 
 ## Install
 
@@ -166,7 +165,7 @@ Throukit is not a hosted platform, and it holds no opinion on auth, memory, RAG 
 
 ## Project status
 
-**Alpha, `0.1.0`.** The API grows only when a real use needs it, and it freezes once the experimental graph has been proven in production. Anything under `throukit.experimental` can change in any release. [CHANGELOG.md](CHANGELOG.md) records each release and every breaking change.
+**Version `0.1.0`, before 1.0.** The API grows only when a real use needs it, and a minor release may still break it; [CHANGELOG.md](CHANGELOG.md) says when. Anything under `throukit.experimental` can change in any release.
 
 Throukit makes no network calls of its own and collects no telemetry. OpenTelemetry spans go only to an exporter you set up.
 

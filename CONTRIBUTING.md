@@ -7,9 +7,9 @@ contracts.
 
 ## The one rule that governs new API
 
-Throukit is being **harvested from a production product** ([Throu](https://throu.ai))
-rather than designed in a vacuum. The binding constraint is **API-commitment
-risk**, not build effort - un-shipping a public API is expensive.
+Throukit grows from real use rather than designs made in a vacuum. The binding
+constraint is **API-commitment risk**, not build effort - un-shipping a public
+API is expensive.
 
 > **The framework is never more than one real usage ahead of itself.**
 > No abstraction ships without a consumer that needs it _today_.
