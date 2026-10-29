@@ -463,8 +463,8 @@ Two things are yours to set:
 - **How long entries live.** `AnthropicModel(prompt_cache="1h")` keeps them an
   hour, for a chat whose users come back after five minutes; writes cost twice
   the input price instead of 1.25 times, and `Usage.cache_write_1h_tokens`
-  counts them (a part of `cache_write_tokens`). The last-block mark stays at
-  five minutes, since only the same turn reads it. `prompt_cache=None` turns
+  counts them (a part of `cache_write_tokens`). A last-block mark past the
+  newest prompt stays at five minutes, since only the same turn reads it. `prompt_cache=None` turns
   caching off.
 
 ```python

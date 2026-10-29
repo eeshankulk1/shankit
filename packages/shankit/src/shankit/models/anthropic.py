@@ -198,7 +198,11 @@ def build_kwargs(
         "messages": [param for param, _ in params],
     }
     if isinstance(request.system, list):
-        kwargs["system"] = [{"type": "text", "text": part} for part in request.system if part]
+        # A blank part is dropped, as a blank message block is: the API
+        # refuses it, and the last-part breakpoint would land on it.
+        kwargs["system"] = [
+            {"type": "text", "text": part} for part in request.system if part.strip()
+        ]
     elif request.system is not None:
         kwargs["system"] = request.system
     rules = model_rules(request.model)

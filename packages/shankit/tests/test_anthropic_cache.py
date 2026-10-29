@@ -83,6 +83,11 @@ def test_system_in_parts_marks_the_last_and_with_a_slot_left_the_first():
     assert _marks(kwargs) == [("system0", FIVE), ("system1", FIVE), ("m0.0", FIVE)]
 
 
+def test_blank_system_part_gets_no_breakpoint():
+    kwargs = build_kwargs(_request([_user("q")], system=["shared", "\n"]), prompt_cache="5m")
+    assert kwargs["system"] == [{"type": "text", "text": "shared", "cache_control": FIVE}]
+
+
 def test_volatile_blocks_stay_after_the_breakpoint():
     note = TextBlock(text="<turn note>", volatile=True)
     messages = [_user("q1"), _assistant("a1"), _user("q2", note)]
