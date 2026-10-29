@@ -36,6 +36,13 @@ export interface Source {
  * Usage is additive: sub-agent runs surface their usage through the tool
  * seam (``ToolResult.usage``) and the parent loop folds it into the run
  * total, so multi-agent token accounting works without any special casing.
+ *
+ * ``by_model`` splits the same counts by model id, so a run that mixes
+ * models (a sub-agent on a cheaper one) can be priced at each model's
+ * rates: the loop tags every model call's usage with its model, and adding
+ * usages merges their splits. Usage that arrives untagged (a tool that
+ * built its own) stays in the totals only; `per_model` reports it
+ * under ``None``.
  */
 export interface Usage {
   input_tokens: number;
@@ -43,6 +50,7 @@ export interface Usage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   requests: number;
+  by_model: Record<string, Usage>;
 }
 
 /**

@@ -102,6 +102,10 @@ class ModelRequest(BaseModel):
     temperature: Optional[float] = None
     #: ``None``: send nothing (the provider's default behavior).
     reasoning: Optional[Reasoning] = None
+    #: The name of the agent making the call (``Agent.name``; ``None`` for a
+    #: call made outside an agent). Providers never send it: it is for a
+    #: client that wraps another one (metering, logging, routing in tests).
+    agent: Optional[str] = None
 
 
 class ModelResponse(BaseModel):

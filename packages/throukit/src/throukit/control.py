@@ -30,6 +30,7 @@ always at the loop's own boundaries (cooperative, never mid-call):
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -38,11 +39,16 @@ from typing import Any, Optional, Union
 from .messages import Message
 from .usage import Usage
 
+logger = logging.getLogger("throukit")
+
 __all__ = ["Budget", "RunControl"]
 
 #: A per-run veto: ``(tool name, arguments) -> refusal text``, or ``None`` to
 #: let the call run.
 Refusal = Callable[[str, dict[str, Any]], Optional[str]]
+
+#: Called when the loop hands a sent message to the model.
+Delivered = Callable[[], None]
 
 #: Called with the run's transcript so far (every message the run added,
 #: starting with its prompt). May be async.
@@ -69,7 +75,8 @@ class Budget:
         timeout_s: Wall clock since this run (or resume) started.
         max_cost: Spend ceiling in your own unit, priced by ``cost`` from
             the run's cumulative usage (plus ``spent`` for a resumed run).
-        cost: Prices a `Usage`. Required with ``max_cost``.
+        cost: Prices a `Usage`. Required with ``max_cost``. For a
+            run that mixes models, price ``usage.per_model()`` part by part.
         spent: Cost already spent before this run started (a resume).
         notice: What the model is told when the budget is reached.
     """
@@ -134,7 +141,7 @@ class RunControl:
         self.checkpoint = checkpoint
         self._parent = parent
         self._lock = threading.Lock()
-        self._inbox: list[str] = []
+        self._inbox: list[tuple[str, Optional[Delivered]]] = []
         self._cancelled = False
 
     def __repr__(self) -> str:
@@ -148,11 +155,13 @@ class RunControl:
     def cancelled(self) -> bool:
         return self._cancelled or (self._parent is not None and self._parent.cancelled)
 
-    def send(self, text: str) -> None:
-        """Deliver ``text`` to the model at the run's next tool boundary."""
+    def send(self, text: str, *, on_delivered: Optional[Delivered] = None) -> None:
+        """Deliver ``text`` to the model at the run's next tool boundary.
+        ``on_delivered`` is called when the loop hands it over (on the
+        loop's task; keep it quick)."""
         if text:
             with self._lock:
-                self._inbox.append(text)
+                self._inbox.append((text, on_delivered))
 
     @property
     def has_messages(self) -> bool:
@@ -160,7 +169,22 @@ class RunControl:
             return bool(self._inbox)
 
     def drain(self) -> list[str]:
-        """Take every undelivered message (the loop calls this)."""
+        """Take every undelivered message, calling each one's
+        ``on_delivered`` (the loop calls this). A callback that raises is
+        logged and skipped: it cannot end the run or lose the messages."""
+        taken = self.undelivered()
+        for _, on_delivered in taken:
+            if on_delivered is not None:
+                try:
+                    on_delivered()
+                except Exception:
+                    logger.exception("RunControl.send on_delivered callback failed")
+        return [text for text, _ in taken]
+
+    def undelivered(self) -> list[tuple[str, Optional[Delivered]]]:
+        """Take the messages the model hasn't been handed, without
+        delivering them: to pass them on to a run that carries this one on
+        (``send`` each to its control)."""
         with self._lock:
             taken, self._inbox = self._inbox, []
         return taken

@@ -116,7 +116,10 @@ class AnthropicModel(ModelClient):
     def _build_kwargs(self, request: ModelRequest) -> dict[str, Any]:
         kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
         if self._extra_request_kwargs:
-            kwargs.update(self._extra_request_kwargs)
+            extra = dict(self._extra_request_kwargs)
+            if "extra_body" in kwargs and "extra_body" in extra:
+                extra["extra_body"] = {**kwargs["extra_body"], **extra["extra_body"]}
+            kwargs.update(extra)
         return kwargs
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
@@ -185,7 +188,9 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
             if rules.off_effort is not None:
                 kwargs["output_config"] = {"effort": rules.off_effort}
     if request.temperature is not None and not thinking_on and rules.sampling:
-        kwargs["temperature"] = request.temperature
+        # In the request body, not as a keyword: SDK 1.0 dropped the
+        # sampling keywords, which older models still take.
+        kwargs["extra_body"] = {"temperature": request.temperature}
     if request.tools:
         kwargs["tools"] = _tool_params(request.tools)
         if forced and isinstance(choice, ForcedTool):
@@ -287,8 +292,10 @@ def _tool_params(tools: list[Any]) -> list[dict[str, Any]]:
 def _message_param(message: Message) -> Optional[dict[str, Any]]:
     """One neutral message as an Anthropic message param. Reasoning from
     this provider is re-sent verbatim; reasoning from any other provider is
-    dropped. A message left with no content is omitted (consecutive
-    same-role messages are merged by the API)."""
+    dropped. So is a text block with only whitespace in it: the API refuses
+    the whole request over one, and a stored history goes out again on
+    every later turn. A message left with no content is omitted
+    (consecutive same-role messages are merged by the API)."""
     content: list[dict[str, Any]] = []
     for block in message.content:
         if isinstance(block, ReasoningBlock):
@@ -309,6 +316,8 @@ def _message_param(message: Message) -> Optional[dict[str, Any]]:
             content.append(_tool_result_param(block))
         elif isinstance(block, ImageBlock):
             content.append(_image_param(block))
+        elif isinstance(block, TextBlock) and not block.text.strip():
+            continue
         else:
             content.append(block.model_dump())
     if not content:

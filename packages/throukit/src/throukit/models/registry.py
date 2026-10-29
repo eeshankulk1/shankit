@@ -21,7 +21,7 @@ from .base import ModelClient
 
 logger = logging.getLogger("throukit")
 
-__all__ = ["register_provider", "resolve_model", "shutdown"]
+__all__ = ["ProviderFactory", "get_provider", "register_provider", "resolve_model", "shutdown"]
 
 ProviderFactory = Callable[[], ModelClient]
 
@@ -50,11 +50,37 @@ def _client_cache() -> dict[str, ModelClient]:
     return cache
 
 
-def register_provider(name: str, factory: ProviderFactory) -> None:
-    """Register a provider prefix for ``"name:model_id"`` specs."""
+def register_provider(name: str, factory: ProviderFactory) -> Optional[ProviderFactory]:
+    """Register a provider prefix for ``"name:model_id"`` specs. Returns the
+    factory it replaced (a built-in one included), so a caller that wraps or
+    swaps a provider for a while can put it back."""
+    _default_factories()
+    previous = _PROVIDERS.get(name)
     _PROVIDERS[name] = factory
+    _forget_clients(name)
+    return previous
+
+
+def _unregister_provider(name: str) -> None:
+    _PROVIDERS.pop(name, None)
+    _forget_clients(name)
+
+
+def _forget_clients(name: str) -> None:
     for cache in (_NO_LOOP_CLIENTS, *list(_LOOP_CLIENTS.values())):
         cache.pop(name, None)
+
+
+def get_provider(name: str) -> Optional[ProviderFactory]:
+    """The factory registered for a provider prefix (``"anthropic"``,
+    ``"openai"``, or one added with `register_provider`), or ``None``.
+    Wrap it to put something around every client that provider makes::
+
+        inner = get_provider("anthropic")
+        register_provider("anthropic", lambda: Metered(inner()))
+    """
+    _default_factories()
+    return _PROVIDERS.get(name)
 
 
 def _default_factories() -> None:

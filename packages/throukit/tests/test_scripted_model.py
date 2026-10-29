@@ -221,14 +221,16 @@ async def test_usage_accounting():
     )
     events = await collect(agent.stream("go"))
 
-    usages = [e.usage for e in events if isinstance(e, UsageEvent)]
+    usages = [e.usage.counts() for e in events if isinstance(e, UsageEvent)]
     assert usages == [
         Usage(input_tokens=100, output_tokens=20, cache_read_tokens=50, requests=1),
         Usage(requests=1),
     ]
     done = events[-1]
     assert isinstance(done, DoneEvent)
-    assert done.usage == Usage(input_tokens=100, output_tokens=20, cache_read_tokens=50, requests=2)
+    expected = Usage(input_tokens=100, output_tokens=20, cache_read_tokens=50, requests=2)
+    assert done.usage.counts() == expected
+    assert done.usage.per_model() == {"scripted-1": expected}
 
 
 async def test_scripted_max_tokens_marks_the_run_truncated():
@@ -434,3 +436,31 @@ def test_describe_request_handles_multimodal_tool_results() -> None:
     )
     summary = _describe_request(request)
     assert "tool_result t1 'page text\\n[image]'" in summary
+
+
+async def test_use_model_resolves_every_spec_then_restores():
+    from throukit import get_provider
+    from throukit.testing import use_model
+
+    real = get_provider("anthropic")
+    with use_model(ScriptedModel(["From the script."])) as model:
+        agent = Agent(name="deep", model="anthropic:claude-whatever")
+        result = await agent.run("hi", output_type=str)
+    assert result.output == "From the script."
+    assert model.requests[0].agent == "deep"
+    assert get_provider("anthropic") is real
+
+
+async def test_tool_call_sets_the_current_call():
+    from throukit import current_tool_call
+    from throukit.testing import tool_call
+
+    events: list[object] = []
+    assert current_tool_call() is None
+    with tool_call(tool_name="probe", emit=events.append, run_state={"k": 1}) as call:
+        current = current_tool_call()
+        assert current is call
+        assert current.run_state == {"k": 1}
+        current.emit("hello")
+    assert current_tool_call() is None
+    assert events == ["hello"]

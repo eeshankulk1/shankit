@@ -61,6 +61,8 @@ def ts_type(schema: dict[str, Any], defs: dict[str, Any]) -> str:
     if schema_type == "object" and "properties" in schema:
         fields = render_fields(schema, defs, indent="  ")
         return "{\n" + fields + "\n}"
+    if schema_type == "object" and isinstance(schema.get("additionalProperties"), dict):
+        return f"Record<string, {ts_type(schema['additionalProperties'], defs)}>"
     if schema_type == "object":
         return "Record<string, unknown>"
     return "unknown"
