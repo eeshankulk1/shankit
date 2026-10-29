@@ -1,7 +1,7 @@
 {
-  "name": "@shankit/client",
+  "name": "@throukit/client",
   "version": "0.1.0",
-  "description": "Typed TypeScript consumer for shankit agent event streams over SSE/HTTP. Consumes agent runs; does not run agents.",
+  "description": "Typed TypeScript consumer for throukit agent event streams over SSE/HTTP. Consumes agent runs; does not run agents.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,12 +31,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eeshankulk1/shankit.git",
+    "url": "git+https://github.com/throuai/throukit.git",
     "directory": "packages/client-ts"
   },
-  "homepage": "https://github.com/eeshankulk1/shankit/tree/main/packages/client-ts",
+  "homepage": "https://github.com/throuai/throukit/tree/main/packages/client-ts",
   "bugs": {
-    "url": "https://github.com/eeshankulk1/shankit/issues"
+    "url": "https://github.com/throuai/throukit/issues"
   },
   "keywords": [
     "ai",

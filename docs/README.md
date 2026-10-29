@@ -1,6 +1,6 @@
-# shankit documentation
+# throukit documentation
 
-The complete guide to shankit — an AI agent framework that takes the
+The complete guide to throukit — an AI agent framework that takes the
 integration seam as seriously as the agent loop itself, without imposing how
 you authenticate.
 
@@ -31,9 +31,9 @@ reference you can reach for when you need it.
 
 | Package | Role |
 |---|---|
-| [`shankit`](../packages/shankit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
-| [`shankit-connectors`](../packages/shankit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
-| [`@shankit/client`](../packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
+| [`throukit`](../packages/throukit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
+| [`throukit-connectors`](../packages/throukit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
+| [`@throukit/client`](../packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
 
 ---
 

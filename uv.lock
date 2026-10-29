@@ -12,8 +12,8 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "shankit",
-    "shankit-connectors",
+    "throukit",
+    "throukit-connectors",
 ]
 
 [manifest.dependency-groups]
@@ -1375,8 +1375,43 @@ wheels = [
 ]
 
 [[package]]
-name = "shankit"
-source = { editable = "packages/shankit" }
+name = "sniffio"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
+]
+
+[[package]]
+name = "sse-starlette"
+version = "3.4.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/1b/bc9e3e7a72dcdad7dc7888758f5d00f56f8909ed5cfdff822bd72bb4c520/sse_starlette-3.4.5.tar.gz", hash = "sha256:83072538bc211a2f68b7b0422226c4af3e9b62e106e07034664b832ca019842a", size = 35249, upload-time = "2026-06-20T17:36:58.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/78/75/c88d3f5dafd59c791da1ce27650d30bf5b70cbf1cbf01cd00e5f9e360915/sse_starlette-3.4.5-py3-none-any.whl", hash = "sha256:e71bad53323f65573c3864a6c3bd0c1eb6e5f092b2e48082b0c35927d19ca296", size = 16518, upload-time = "2026-06-20T17:36:56.729Z" },
+]
+
+[[package]]
+name = "starlette"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/bb/2799cc2ede3ed41131f8975621e7213dfc7ef4acbbaadfa440f32500c370/starlette-1.3.1-py3-none-any.whl", hash = "sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6", size = 73632, upload-time = "2026-06-12T09:23:10.017Z" },
+]
+
+[[package]]
+name = "throukit"
+source = { editable = "packages/throukit" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1434,12 +1469,12 @@ dev = [
 ]
 
 [[package]]
-name = "shankit-connectors"
+name = "throukit-connectors"
 version = "0.1.0"
-source = { editable = "packages/shankit-connectors" }
+source = { editable = "packages/throukit-connectors" }
 dependencies = [
     { name = "pydantic" },
-    { name = "shankit" },
+    { name = "throukit" },
 ]
 
 [package.optional-dependencies]
@@ -1457,7 +1492,7 @@ dev = [
 requires-dist = [
     { name = "composio", marker = "extra == 'composio'", specifier = ">=0.8.0,<1.0" },
     { name = "pydantic", specifier = ">=2.7,<3" },
-    { name = "shankit", editable = "packages/shankit" },
+    { name = "throukit", editable = "packages/throukit" },
 ]
 provides-extras = ["composio"]
 
@@ -1465,41 +1500,6 @@ provides-extras = ["composio"]
 dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
-]
-
-[[package]]
-name = "sniffio"
-version = "1.3.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc", size = 20372, upload-time = "2024-02-25T23:20:04.057Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2", size = 10235, upload-time = "2024-02-25T23:20:01.196Z" },
-]
-
-[[package]]
-name = "sse-starlette"
-version = "3.4.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "starlette" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/1b/bc9e3e7a72dcdad7dc7888758f5d00f56f8909ed5cfdff822bd72bb4c520/sse_starlette-3.4.5.tar.gz", hash = "sha256:83072538bc211a2f68b7b0422226c4af3e9b62e106e07034664b832ca019842a", size = 35249, upload-time = "2026-06-20T17:36:58.322Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/75/c88d3f5dafd59c791da1ce27650d30bf5b70cbf1cbf01cd00e5f9e360915/sse_starlette-3.4.5-py3-none-any.whl", hash = "sha256:e71bad53323f65573c3864a6c3bd0c1eb6e5f092b2e48082b0c35927d19ca296", size = 16518, upload-time = "2026-06-20T17:36:56.729Z" },
-]
-
-[[package]]
-name = "starlette"
-version = "1.3.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/bb/2799cc2ede3ed41131f8975621e7213dfc7ef4acbbaadfa440f32500c370/starlette-1.3.1-py3-none-any.whl", hash = "sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6", size = 73632, upload-time = "2026-06-12T09:23:10.017Z" },
 ]
 
 [[package]]

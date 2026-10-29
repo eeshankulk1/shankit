@@ -1,6 +1,6 @@
 # Core concepts
 
-Everything in shankit is a small set of primitives; the rest is satellites. This
+Everything in throukit is a small set of primitives; the rest is satellites. This
 page is the mental model. Read [Getting started](getting-started.md) first if you
 haven't run an agent yet.
 
@@ -108,16 +108,16 @@ Everything is a tool source behind this seam:
 | **MCP servers** | `MCPToolSource(...)` — any MCP server, first-class in core |
 | **Aggregation** | `CompositeToolSource([...])` — combine several into one |
 | **Sub-agents** | `sub_agent.as_tool()` — see [multi-agent](#multi-agent) |
-| **Connectors** | the opt-in [`shankit-connectors`](../packages/shankit-connectors) layer for OAuth sources |
+| **Connectors** | the opt-in [`throukit-connectors`](../packages/throukit-connectors) layer for OAuth sources |
 
-When you pass a mixed `tools=[...]` list to `Agent`, shankit folds it into a
+When you pass a mixed `tools=[...]` list to `Agent`, throukit folds it into a
 single seam implementation for you.
 
 ### Writing a tool
 
 ```python
-from shankit import tool, ToolError, ToolResult
-from shankit.events import Source
+from throukit import tool, ToolError, ToolResult
+from throukit.events import Source
 
 @tool
 def search_docs(ctx, query: str) -> str:      # `ctx` first param is optional
@@ -247,7 +247,7 @@ accounting. Pass `output="structured"` to expose a sub-agent's schema instead of
 its text.
 
 > Pass sub-agents **as tools explicitly** (`sub.as_tool()`), never the `Agent`
-> object itself — shankit raises a `TypeError` to keep the boundary obvious.
+> object itself — throukit raises a `TypeError` to keep the boundary obvious.
 
 A sub-agent's own steps forward live into the parent's stream as they happen —
 the parent's consumer sees them as they occur, not just as one tool result at
@@ -263,7 +263,7 @@ sees one tool whose description lists what each agent is for, and picks by
 name:
 
 ```python
-from shankit import Agent, AgentDelegate, DelegateToolSource
+from throukit import Agent, AgentDelegate, DelegateToolSource
 
 triage = Agent(name="triage", model="anthropic:claude-sonnet-4-5", instructions="...")
 billing = Agent(name="billing", model="anthropic:claude-sonnet-4-5", instructions="...")
@@ -300,7 +300,7 @@ report. Because a clone is the same agent, its first request shares the
 parent's prompt prefix, so the provider's prompt cache serves it.
 
 ```python
-from shankit import Agent, Budget, CloneToolSource
+from throukit import Agent, Budget, CloneToolSource
 
 assistant = Agent(
     name="assistant",
@@ -381,7 +381,7 @@ same small surface (`exec` optional, `read_file`/`write_file` required,
 same way a connector names *whose* credentials to use:
 
 ```python
-from shankit import Agent, LocalWorkspace, WorkspaceTools
+from throukit import Agent, LocalWorkspace, WorkspaceTools
 
 def sandbox_for(ctx):
     return LocalWorkspace(f"/var/sandboxes/{ctx['user_id']}")
@@ -440,14 +440,14 @@ model="openai:gpt-4.1"
 
 ### Testing with a scripted model
 
-`shankit.testing.ScriptedModel` is a provider-neutral fake `ModelClient` for
+`throukit.testing.ScriptedModel` is a provider-neutral fake `ModelClient` for
 deterministic tests, with no network and no spend. It plays a script, one turn
 per model call, and records every request the loop sends.
 
 ```python
 # test_support.py (pytest + pytest-asyncio, asyncio_mode = "auto")
-from shankit import Agent, tool
-from shankit.testing import ScriptedModel, ToolCall, Turn
+from throukit import Agent, tool
+from throukit.testing import ScriptedModel, ToolCall, Turn
 
 
 @tool
@@ -527,7 +527,7 @@ Observability is first-class and **user-facing**, not just dev tracing:
   your own via `describe_step=`.
 - The resulting **step events** ride the stream and are exactly what a chat UI
   renders as "what the agent is doing."
-- **OpenTelemetry** spans (`pip install shankit[otel]`) are available and
+- **OpenTelemetry** spans (`pip install throukit[otel]`) are available and
   orthogonal — developer tracing that never mixes with the user-facing steps.
 
 ## The uniform error contract

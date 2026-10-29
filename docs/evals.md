@@ -7,8 +7,8 @@ anything you can run, you can evaluate.
 
 ```python
 import asyncio
-from shankit import Agent, tool
-from shankit.evals import Case, Dataset, evaluate, exact_match, trajectory
+from throukit import Agent, tool
+from throukit.evals import Case, Dataset, evaluate, exact_match, trajectory
 
 dataset = Dataset(cases=[
     Case(name="two-open", input="How many open orders do I have?",
@@ -35,7 +35,7 @@ a normal run gets), an optional `expected` value for scorers to compare
 against, and free-form `metadata`.
 
 ```python
-from shankit.evals import Case, Dataset
+from throukit.evals import Case, Dataset
 
 dataset = Dataset(cases=[Case(name="c1", input="...", expected="...")])
 dataset = Dataset.from_jsonl("cases.jsonl")      # one Case-shaped JSON object per line
@@ -81,7 +81,7 @@ falling back to `result.text`), not the transcript — an agent that merely
 Writing your own is the normal path:
 
 ```python
-from shankit.evals import Score
+from throukit.evals import Score
 
 def cites_sources(case, result):
     return Score(name="cites_sources", value=1.0 if result.sources else 0.0,
@@ -90,7 +90,7 @@ def cites_sources(case, result):
 
 ## Trajectory assertions
 
-`shankit.evals.trajectory` scores *how* the agent worked, over the recorded
+`throukit.evals.trajectory` scores *how* the agent worked, over the recorded
 tool calls in `result.trajectory`:
 
 | Assertion | Passes when |
@@ -108,7 +108,7 @@ These are ordinary scorers — mix them freely with output scorers in one
 
 Nothing in the harness talks to a provider unless a scorer does
 (`llm_judge` runs a real model). For deterministic CI evals, hand the agent
-a `shankit.testing.ScriptedModel` (see
+a `throukit.testing.ScriptedModel` (see
 [Testing with a scripted model](concepts.md#testing-with-a-scripted-model))
 and assert on trajectories and outputs.
 

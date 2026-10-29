@@ -31,7 +31,7 @@ Prioritize anything that looks time-sensitive.
 ```
 
 ```python
-from shankit import load_agent, register
+from throukit import load_agent, register
 
 register("gmail", gmail_connector)      # only non-importable live objects need this
 agent = load_agent("agents/triage.md")  # → the same Agent the constructor makes
@@ -55,12 +55,12 @@ immediately).
 
 There is no `mode` key: a file is just an agent, and the caller still chooses
 `run()` vs `stream()` at call time. `output_schema` is the _only_ addition over
-Claude Code frontmatter — everything else mirrors it, and shankit diverges only
+Claude Code frontmatter — everything else mirrors it, and throukit diverges only
 to _add_, never to rename.
 
 ## References: import vs. registry
 
-Tool and schema references use **standard Python**, not invented syntax. shankit
+Tool and schema references use **standard Python**, not invented syntax. throukit
 disambiguates on the colon:
 
 - **`module:attribute`** → an ordinary Python import (`uvicorn`/entry-point
@@ -72,7 +72,7 @@ disambiguates on the colon:
   source you built at startup. Register it explicitly:
 
   ```python
-  from shankit import register
+  from throukit import register
   register("gmail", gmail_connector)
   ```
 
@@ -111,7 +111,7 @@ rather than quietly becoming code.
 ## Loading
 
 ```python
-from shankit import load_agent, load_agents
+from throukit import load_agent, load_agents
 
 # One file → one Agent.
 agent = load_agent(
@@ -138,7 +138,7 @@ loads so, for example, a shared workspace reaches every sub-agent in the
 directory:
 
 ```python
-from shankit import DelegateToolSource
+from throukit import DelegateToolSource
 
 roster = DelegateToolSource.from_directory(
     "agents/",

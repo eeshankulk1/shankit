@@ -1,7 +1,7 @@
 """Capability lives in code; the .md file references it by import path."""
 
 from pydantic import BaseModel
-from shankit import tool
+from throukit import tool
 
 INBOX = [
     {"id": "m1", "from": "boss@corp.com", "subject": "Need the Q3 numbers by Friday"},

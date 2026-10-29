@@ -4,13 +4,13 @@ The parent's model decides when to consult each specialist; failures are
 sanitized, sources propagate, and sub-agent token usage folds into the
 parent run's accounting — all through the ordinary tool seam.
 
-Requires: pip install shankit[anthropic]  and  ANTHROPIC_API_KEY set.
+Requires: pip install throukit[anthropic]  and  ANTHROPIC_API_KEY set.
 """
 
 import asyncio
 
-from shankit import Agent, ToolResult, tool
-from shankit.events import Source
+from throukit import Agent, ToolResult, tool
+from throukit.events import Source
 
 
 @tool

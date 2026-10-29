@@ -1,6 +1,6 @@
 # Durability & networks
 
-Durability in shankit is a **contract you back with your own storage**, not a
+Durability in throukit is a **contract you back with your own storage**, not a
 platform you buy into. It powers long-running and scheduled agents, and — paired
 with the experimental network — durable human-in-the-loop approval pauses.
 
@@ -19,8 +19,8 @@ Two implementations ship in-box:
 
 | Store | Import | Use for |
 |---|---|---|
-| `InMemoryCheckpointer` | `from shankit import InMemoryCheckpointer` | tests, single-process runs |
-| `SqliteCheckpointer` | `from shankit import SqliteCheckpointer` | durable local/single-node persistence |
+| `InMemoryCheckpointer` | `from throukit import InMemoryCheckpointer` | tests, single-process runs |
+| `SqliteCheckpointer` | `from throukit import SqliteCheckpointer` | durable local/single-node persistence |
 
 Checkpoint state is JSON (the shipped stores enforce it on save), so backing the
 contract with Postgres, Redis, or anything else is a small class — the framework
@@ -29,10 +29,10 @@ never assumes _where_ the state lives.
 ## Networks (experimental)
 
 For the case agents-as-tools does **not** cover — when **code, not the model,
-controls flow** — shankit ships a router-driven `Network`: deterministic routing,
+controls flow** — throukit ships a router-driven `Network`: deterministic routing,
 cycles, state accumulated across steps, and pauses for human approval.
 
-> `shankit.experimental.*` ships with **no stability guarantee**. The namespace
+> `throukit.experimental.*` ships with **no stability guarantee**. The namespace
 > _is_ the flag: stabilizing the API is what moves it out of `experimental`.
 > Reaching for a network merely to chain two agents is a smell — that's what
 > `as_tool()` is for.
@@ -42,8 +42,8 @@ current state and returns the next step to run, an `Interrupt`, or `None` to
 stop:
 
 ```python
-from shankit import Agent, SqliteCheckpointer, tool
-from shankit.experimental.graph import Interrupt, Network, agent_step
+from throukit import Agent, SqliteCheckpointer, tool
+from throukit.experimental.graph import Interrupt, Network, agent_step
 
 def router(state: dict):
     if "notes" not in state:    return "gather"

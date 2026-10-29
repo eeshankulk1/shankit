@@ -1,0 +1,217 @@
+"""The typed event stream (design §6).
+
+This is the single source of truth for what a streaming run emits. The
+TypeScript consumer SDK's event types are generated from these models
+(``scripts/generate_ts_events.py``), so the two cannot drift.
+
+A stream ends with exactly one terminal event: ``done`` on success or
+``error`` on failure.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from .messages import Message
+from .usage import Usage
+
+__all__ = [
+    "AgentEvent",
+    "Artifact",
+    "ArtifactEvent",
+    "DoneEvent",
+    "ErrorEvent",
+    "Source",
+    "SourceEvent",
+    "StepEvent",
+    "TextDeltaEvent",
+    "UsageEvent",
+    "WorkerEvent",
+    "agent_event_adapter",
+    "error_event_for",
+]
+
+
+class Source(BaseModel):
+    """A citation/source surfaced by a tool result.
+
+    Extra fields are allowed so tools can attach vendor-specific metadata
+    without the framework needing to know about it.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    title: str
+    url: Optional[str] = None
+    snippet: Optional[str] = None
+
+
+class Artifact(BaseModel):
+    """A typed structured payload surfaced by a tool result.
+
+    Where a :class:`Source` is semantically a citation, an artifact is
+    content: a piece of typed data the application wants to carry from a
+    tool execution out to the caller intact (e.g. an email card, a
+    calendar event). ``type`` names the application-defined kind;
+    ``data`` is opaque to the framework — it is never inspected, only
+    carried (same stance as the per-run context, design §3.3).
+    """
+
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class TextDeltaEvent(BaseModel):
+    """A chunk of assistant text as it is generated."""
+
+    type: Literal["text_delta"] = "text_delta"
+    text: str
+
+
+class StepEvent(BaseModel):
+    """A user-facing narration step, produced by the step-describer.
+
+    Each tool call yields a ``running`` event followed by a ``done`` or
+    ``error`` event with the same ``id``. ``agent`` attributes the step to
+    a delegated sub-agent (its steps are forwarded into the parent run
+    with ids prefixed by the parent step's id) or whatever the
+    step-describer names; ``None`` means the running agent itself.
+    ``worker`` is separate from ``agent``: the id of the run that took the
+    step when several copies of one agent work at once (a clone, see
+    ``WorkerEvent``); ``None`` for the top-level run.
+    """
+
+    type: Literal["step"] = "step"
+    id: str
+    title: str
+    detail: Optional[str] = None
+    phase: Optional[str] = None
+    status: Literal["running", "done", "error"] = "running"
+    agent: Optional[str] = None
+    worker: Optional[str] = None
+
+
+class WorkerEvent(BaseModel):
+    """A clone's lifecycle in the stream of the run that spawned it.
+
+    ``id`` is the clone's worker id (its steps carry it as
+    ``StepEvent.worker``); ``batch`` groups the clones one model response
+    spawned. ``status`` is ``running`` when it starts, then one of
+    ``done``, ``partial`` (it reached its budget and reported what it had),
+    ``failed``, ``stopped`` (cancelled), or ``background`` (still running
+    when the spawning call returned; its host delivers the report later).
+    """
+
+    type: Literal["worker"] = "worker"
+    id: str
+    title: str
+    status: Literal["running", "done", "partial", "failed", "stopped", "background"]
+    batch: Optional[str] = None
+
+
+class SourceEvent(BaseModel):
+    """A source/citation surfaced by a tool during the run."""
+
+    type: Literal["source"] = "source"
+    source: Source
+
+
+class ArtifactEvent(BaseModel):
+    """A structured payload surfaced by a tool during the run."""
+
+    type: Literal["artifact"] = "artifact"
+    artifact: Artifact
+
+
+class UsageEvent(BaseModel):
+    """One usage increment within the run: a model call, or usage a tool
+    reported (e.g. a sub-agent's spend surfacing through the tool seam).
+
+    Invariant: the UsageEvents of a stream sum to ``DoneEvent.usage``, so a
+    consumer can meter cost live without waiting for the terminal event.
+    """
+
+    type: Literal["usage"] = "usage"
+    usage: Usage
+
+
+class ErrorEvent(BaseModel):
+    """Terminal event: the run failed.
+
+    ``message`` is human-safe and may be shown to end users. ``code`` says
+    *what kind* of failure without parsing the message; the codes emitted
+    today are ``model_error`` (the model provider call failed),
+    ``max_iterations``, ``output_validation``, ``timeout`` (the run passed
+    its ``timeout_s``), ``error`` (other framework
+    errors), and ``unexpected`` — the field stays an open string so new
+    codes are not a breaking change. ``retryable`` is true when retrying
+    the run shortly is reasonable (rate limits, provider overloads).
+    """
+
+    type: Literal["error"] = "error"
+    message: str
+    code: str = "unexpected"
+    retryable: bool = False
+
+
+class DoneEvent(BaseModel):
+    """Terminal event: the run finished.
+
+    ``text`` is the transcript: every assistant text pass of the run — the
+    same content the ``text_delta`` events streamed — joined with blank
+    lines (the deltas themselves carry no separator between passes).
+    ``output`` is set only when the run produced a deliverable (for
+    ``output_type=str`` runs, the final pass's text); for a plain streamed
+    conversation it is ``None``. ``truncated`` is true if any model pass of
+    the run (or of a sub-agent run reporting through the tool seam) stopped
+    at the token limit, meaning the result may be incomplete. ``stopped``
+    says the run ended early by :class:`~throukit.RunControl`: ``"budget"``
+    (it reached its budget and wrote a last report) or ``"cancelled"``.
+    """
+
+    type: Literal["done"] = "done"
+    text: str = ""
+    output: Any = None
+    usage: Usage = Field(default_factory=Usage)
+    truncated: bool = False
+    stopped: Optional[Literal["budget", "cancelled"]] = None
+    #: The run's own transcript: every message it added to the
+    #: conversation, starting with the prompt — assistant passes (text,
+    #: tool calls, reasoning) and tool results. Pass it back as ``history``
+    #: to continue with full tool context. In-process only: excluded from
+    #: serialization, so it never rides the SSE wire.
+    messages: list[Message] = Field(default_factory=list, exclude=True)
+
+
+AgentEvent = Annotated[
+    Union[
+        TextDeltaEvent,
+        StepEvent,
+        SourceEvent,
+        ArtifactEvent,
+        UsageEvent,
+        WorkerEvent,
+        ErrorEvent,
+        DoneEvent,
+    ],
+    Field(discriminator="type"),
+]
+
+
+def error_event_for(exc: BaseException) -> ErrorEvent:
+    """The one place an exception becomes a terminal ``error`` event, so the
+    stream and SSE paths cannot drift: framework errors keep their (already
+    human-safe) message, anything else is sanitized, and code/retryable come
+    from the exception's type."""
+    from .exceptions import ModelError, ThroukitError, error_code
+
+    message = str(exc) if isinstance(exc, ThroukitError) else "The run failed unexpectedly."
+    retryable = exc.retryable if isinstance(exc, ModelError) else False
+    return ErrorEvent(message=message, code=error_code(exc), retryable=retryable)
+
+
+def agent_event_adapter() -> TypeAdapter[Any]:
+    """A ``TypeAdapter`` for parsing serialized events back into models."""
+    return TypeAdapter(AgentEvent)

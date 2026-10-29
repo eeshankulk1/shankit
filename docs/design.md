@@ -12,9 +12,9 @@
 > detail isn't stated here, that's latitude, not an oversight: make the choice
 > that best serves the principles in §1.
 >
-> **Working name:** *unresolved* — "AgentKit" is taken (Inngest and OpenAI both
-> ship products by that name) and is retired even as a placeholder. Pick a real
-> name before first release (§13).
+> **Name:** Throukit (decided 2026-10-29; the working name was `shankit`,
+> and "AgentKit" was ruled out earlier because Inngest and OpenAI both ship
+> products by that name). See §14 entry 9.
 
 ---
 
@@ -393,7 +393,7 @@ of itself.**
    Lighter; can be settled during implementation.
 2. **TypeScript consumer SDK detail** — event-type generation, transport, the
    published API. Can come after the Python core stabilizes.
-3. **Name** — "AgentKit" retired; choose before first release.
+3. **Name** — settled: Throukit (§14 entry 9).
 
 *Resolved and folded in:* core primitives (§3), connector contract (§4),
 file-first format (§5), graph/network escape hatch + validation path (§9),
@@ -426,7 +426,7 @@ where the original text had a gap (flagged ⚠):
    import; bare `name` ⇒ explicit registry (§5). `output_schema` must be an
    import ref (a type is always importable).
 5. **The experimental flag is structural**: the graph lives at
-   `shankit.experimental.graph`; stabilizing it *is* moving it out of that
+   `throukit.experimental.graph`; stabilizing it *is* moving it out of that
    namespace.
 6. **Uniform error contract**: tools raise `ToolError("model-visible text")`
    for controlled failures; any other exception is sanitized to a generic
@@ -445,11 +445,12 @@ where the original text had a gap (flagged ⚠):
    fast-follow; richer semantics (per-step idempotency keys, retry policies)
    stay open until real usage demands them.
 8. **TS types are generated, not mirrored**: `scripts/generate_ts_events.py`
-   emits `@shankit/client`'s event types from the pydantic models; CI fails
+   emits `@throukit/client`'s event types from the pydantic models; CI fails
    on drift (§8).
-9. **Naming (§13) remains open** — everything ships under the working name
-   `shankit` / `@shankit/client`; renaming before first release is a
-   find-replace plus package metadata.
+9. **Naming (§13) settled: Throukit.** The framework shipped under the
+   working name `shankit` until 2026-10-29, then took the name Throukit
+   (`throukit`, `throukit-connectors`, `@throukit/client`) before its first
+   release; Throu, Inc. holds the copyright and it stays MIT.
 
 10. **⚠ `text` is the transcript; `output` is the answer.** The original
     build kept only the final iteration's text, so an agent that speaks
@@ -583,7 +584,7 @@ where the original text had a gap (flagged ⚠):
       `as_tool()` sub-agents forward their steps this way, ids prefixed with
       the parent step id and `StepEvent.agent` set. `StepEvent`/`StepInfo`
       gained `agent` (additive on the wire).
-16. **`ScriptedModel` is the public test double** (`shankit.testing`). The
+16. **`ScriptedModel` is the public test double** (`throukit.testing`). The
     suite's own `FakeModel` pattern, promoted once the first consumer needed
     the same thing for its tests. A turn composes text, tool calls,
     reasoning, structured output, usage, raw blocks, or an error; every

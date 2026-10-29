@@ -1,0 +1,318 @@
+"""OpenAI model client (Chat Completions). Requires ``pip install throukit[openai]``."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+from typing import Any, Optional
+
+from ..exceptions import ModelError, ThroukitError
+from ..messages import (
+    ContentBlock,
+    ImageBlock,
+    Message,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    content_text,
+)
+from ..usage import Usage
+from .base import (
+    ForcedTool,
+    ModelClient,
+    ModelRequest,
+    ModelResponse,
+    ModelResponseComplete,
+    ModelStreamEvent,
+    ModelTextDelta,
+    SystemPrompt,
+    map_sdk_error,
+    system_text,
+    wrap_sdk_errors,
+)
+
+__all__ = ["OpenAIModel"]
+
+_FINISH_REASONS = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
+# OpenAI's effort scale tops out at "high".
+_OPENAI_EFFORT = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
+# Models that 400 on `reasoning_effort` beside function tools in Chat
+# Completions ("use /v1/responses or set reasoning_effort to 'none'"; live
+# 2026-10-19). A request with tools leaves the effort out there, and the
+# model reasons at its own default (gpt-5.5 still reasons; "none" would stop
+# it). gpt-5.2 and older and the o-series take both. Prefixes, so the -mini
+# and -nano variants match.
+_NO_EFFORT_WITH_TOOLS = ("gpt-5.4", "gpt-5.5")
+
+
+class OpenAIModel(ModelClient):
+    """OpenAI Chat Completions client.
+
+    Sends ``max_completion_tokens`` (the spelling reasoning models accept);
+    cached prompt tokens from ``prompt_tokens_details`` are reported on
+    ``Usage.cache_read_tokens``. OpenAI manages prompt caching automatically,
+    so there is no cache-write knob or cost to report.
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        client: Any = None,
+    ) -> None:
+        self._api_key = api_key
+        self._base_url = base_url
+        self._client = client
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            try:
+                import openai
+            except ImportError as exc:  # pragma: no cover
+                raise ThroukitError(
+                    "OpenAIModel requires the 'openai' package. "
+                    "Install with: pip install throukit[openai]"
+                ) from exc
+            self._client = openai.AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        return self._client
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        client = self._get_client()
+        with wrap_sdk_errors(_map_error):
+            response = await client.chat.completions.create(**build_kwargs(request))
+        return parse_completion(response)
+
+    async def stream(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
+        client = self._get_client()
+        kwargs = build_kwargs(request)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+
+        text_parts: list[str] = []
+        tool_calls: dict[int, dict[str, Any]] = {}
+        finish_reason: Optional[str] = None
+        usage = Usage(requests=1)
+        with wrap_sdk_errors(_map_error):
+            stream = await client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage.input_tokens = chunk.usage.prompt_tokens or 0
+                    usage.output_tokens = chunk.usage.completion_tokens or 0
+                    usage.cache_read_tokens = _cached_tokens(chunk.usage)
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta
+                if delta is None:
+                    continue
+                if delta.content:
+                    text_parts.append(delta.content)
+                    yield ModelTextDelta(text=delta.content)
+                for tc in delta.tool_calls or []:
+                    acc = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                    if tc.id:
+                        acc["id"] = tc.id
+                    if tc.function and tc.function.name:
+                        acc["name"] = tc.function.name
+                    if tc.function and tc.function.arguments:
+                        acc["arguments"] += tc.function.arguments
+
+        content: list[ContentBlock] = []
+        text = "".join(text_parts)
+        if text:
+            content.append(TextBlock(text=text))
+        for index in sorted(tool_calls):
+            acc = tool_calls[index]
+            content.append(
+                ToolUseBlock(
+                    id=acc["id"] or f"call_{index}",
+                    name=acc["name"],
+                    input=_parse_arguments(acc["arguments"]),
+                )
+            )
+        stop = _FINISH_REASONS.get(finish_reason or "", "other")
+        yield ModelResponseComplete(
+            response=ModelResponse(content=content, stop_reason=stop, usage=usage)  # type: ignore[arg-type]
+        )
+
+    async def aclose(self) -> None:
+        if self._client is not None and hasattr(self._client, "close"):
+            await self._client.close()
+
+
+def _map_error(exc: Exception) -> Optional[ModelError]:
+    import openai
+
+    return map_sdk_error(
+        exc,
+        provider="openai",
+        status_error=openai.APIStatusError,
+        connection_error=openai.APIConnectionError,  # includes APITimeoutError
+        base_error=openai.OpenAIError,
+    )
+
+
+def effort_refused_with_tools(model: str) -> bool:
+    """Whether ``model`` (a bare id, or a prefixed one such as
+    ``openai/gpt-5.5``) rejects ``reasoning_effort`` beside function tools."""
+    at = model.find("gpt-")
+    return at >= 0 and model[at:].startswith(_NO_EFFORT_WITH_TOOLS)
+
+
+def build_kwargs(request: ModelRequest) -> dict[str, Any]:
+    """Convert a neutral request into ``chat.completions.create`` kwargs."""
+    kwargs: dict[str, Any] = {
+        "model": request.model,
+        # `max_tokens` is deprecated on Chat Completions and rejected by
+        # reasoning models (which spend completion budget on reasoning);
+        # `max_completion_tokens` is the accepted spelling for both.
+        "max_completion_tokens": request.max_tokens,
+        "messages": to_openai_messages(request.system, request.messages),
+    }
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
+    reasoning = request.reasoning
+    if (
+        reasoning is not None
+        and reasoning.enabled
+        and reasoning.effort is not None
+        and not (request.tools and effort_refused_with_tools(request.model))
+    ):
+        # Chat Completions has no reasoning round-trip (reasoning items live
+        # in the Responses API), only the effort knob — and only reasoning
+        # models accept it, so it is sent only when asked for.
+        kwargs["reasoning_effort"] = _OPENAI_EFFORT[reasoning.effort]
+    if request.tools:
+        kwargs["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.input_schema,
+                },
+            }
+            for t in request.tools
+        ]
+        choice = request.tool_choice
+        if isinstance(choice, ForcedTool):
+            kwargs["tool_choice"] = {"type": "function", "function": {"name": choice.name}}
+        elif choice in ("required", "none"):
+            kwargs["tool_choice"] = choice
+    return kwargs
+
+
+_TOOL_IMAGES_LEAD = "Images returned by the tool calls above:"
+
+
+def _image_part(block: ImageBlock) -> dict[str, Any]:
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{block.media_type};base64,{block.data}"},
+    }
+
+
+def to_openai_messages(
+    system: Optional[SystemPrompt], messages: list[Message]
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if system:
+        out.append({"role": "system", "content": system_text(system)})
+    for message in messages:
+        if message.role == "user":
+            # The user's own text and images, in order, and the images tool
+            # results returned (tool messages carry only text on Chat
+            # Completions; a tool's images follow them as a user message, in
+            # call order).
+            own: list[dict[str, Any]] = []
+            tool_images: list[dict[str, Any]] = []
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    content = content_text(block.content)
+                    if block.is_error:
+                        content = f"ERROR: {content}"
+                    out.append(
+                        {"role": "tool", "tool_call_id": block.tool_use_id, "content": content}
+                    )
+                    if not isinstance(block.content, str):
+                        tool_images.extend(
+                            _image_part(b) for b in block.content if isinstance(b, ImageBlock)
+                        )
+                elif isinstance(block, TextBlock):
+                    own.append({"type": "text", "text": block.text})
+                elif isinstance(block, ImageBlock):
+                    own.append(_image_part(block))
+            texts = [p["text"] for p in own if p["type"] == "text"]
+            if len(texts) < len(own):
+                # A prompt with images of its own keeps its blocks in order.
+                if tool_images:
+                    own.append({"type": "text", "text": _TOOL_IMAGES_LEAD})
+                out.append({"role": "user", "content": own + tool_images})
+            elif tool_images:
+                lead = {"type": "text", "text": "\n".join([_TOOL_IMAGES_LEAD, *texts])}
+                out.append({"role": "user", "content": [lead, *tool_images]})
+            elif texts:
+                out.append({"role": "user", "content": "\n".join(texts)})
+        else:
+            text = "".join(b.text for b in message.content if isinstance(b, TextBlock))
+            calls = [
+                {
+                    "id": b.id,
+                    "type": "function",
+                    "function": {"name": b.name, "arguments": json.dumps(b.input)},
+                }
+                for b in message.content
+                if isinstance(b, ToolUseBlock)
+            ]
+            # OpenAI rejects null content unless tool_calls are present, and
+            # an all-empty assistant turn is reachable (empty model response
+            # followed by the structured-output nudge) — send "" instead.
+            entry: dict[str, Any] = {
+                "role": "assistant",
+                "content": text or ("" if not calls else None),
+            }
+            if calls:
+                entry["tool_calls"] = calls
+            out.append(entry)
+    return out
+
+
+def parse_completion(response: Any) -> ModelResponse:
+    choice = response.choices[0]
+    message = choice.message
+    content: list[ContentBlock] = []
+    if message.content:
+        content.append(TextBlock(text=message.content))
+    for tc in message.tool_calls or []:
+        content.append(
+            ToolUseBlock(
+                id=tc.id,
+                name=tc.function.name,
+                input=_parse_arguments(tc.function.arguments),
+            )
+        )
+    usage = Usage(requests=1)
+    if getattr(response, "usage", None):
+        usage.input_tokens = response.usage.prompt_tokens or 0
+        usage.output_tokens = response.usage.completion_tokens or 0
+        usage.cache_read_tokens = _cached_tokens(response.usage)
+    stop = _FINISH_REASONS.get(choice.finish_reason or "", "other")
+    return ModelResponse(content=content, stop_reason=stop, usage=usage)  # type: ignore[arg-type]
+
+
+def _cached_tokens(usage: Any) -> int:
+    details = getattr(usage, "prompt_tokens_details", None)
+    return getattr(details, "cached_tokens", 0) or 0
+
+
+def _parse_arguments(raw: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"_raw": raw}
+    return parsed if isinstance(parsed, dict) else {"_raw": parsed}

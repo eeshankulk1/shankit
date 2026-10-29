@@ -73,7 +73,7 @@ don't retry." throu re-raises `RuntimeError(event.message)` to preserve its
 route contract (`orchestrator.py` W3), losing everything else.
 
 **Sketch.**
-- `ModelError(ShankitError)` with `provider`, `status: int | None`,
+- `ModelError(ThroukitError)` with `provider`, `status: int | None`,
   `retryable: bool`. Each `ModelClient` maps its own SDK's exceptions (it
   knows them); the loop wraps as a fallback for custom clients.
 - `ErrorEvent` gains `code: str` (e.g. `model_error`, `max_iterations`,
@@ -187,7 +187,7 @@ it if the passthrough design stays dead simple. Fine to reject.
 - `models/registry.py` `_CLIENT_CACHE` clients are never `aclose()`d - fine
   for servers, leaks warnings in short-lived scripts. A `shutdown()` helper
   or docs note.
-  **Status: done** — `shankit.models.shutdown()`.
+  **Status: done** — `throukit.models.shutdown()`.
 - `AnthropicModel.parse_message` silently drops thinking / server-tool
   blocks; worth stating in the ModelClient boundary contract docstring.
   **Status: done** — stated in the `models.base` contract docstring.

@@ -1,5 +1,5 @@
 // GENERATED FILE — DO NOT EDIT.
-// Source of truth: packages/shankit/src/shankit/events.py
+// Source of truth: packages/throukit/src/throukit/events.py
 // Regenerate with: python scripts/generate_ts_events.py
 
 /**
@@ -152,7 +152,7 @@ export interface ErrorEvent {
  * conversation it is ``None``. ``truncated`` is true if any model pass of
  * the run (or of a sub-agent run reporting through the tool seam) stopped
  * at the token limit, meaning the result may be incomplete. ``stopped``
- * says the run ended early by :class:`~shankit.RunControl`: ``"budget"``
+ * says the run ended early by :class:`~throukit.RunControl`: ``"budget"``
  * (it reached its budget and wrote a last report) or ``"cancelled"``.
  */
 export interface DoneEvent {
@@ -164,7 +164,7 @@ export interface DoneEvent {
   stopped: "budget" | "cancelled" | null;
 }
 
-/** Every event a shankit agent stream can emit. A stream ends with
+/** Every event a throukit agent stream can emit. A stream ends with
  * exactly one terminal event: `done` or `error`. */
 export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | ArtifactEvent | UsageEvent | WorkerEvent | ErrorEvent | DoneEvent;
 

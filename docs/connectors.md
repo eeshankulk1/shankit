@@ -2,11 +2,11 @@
 
 The opt-in integration layer for tools that need OAuth-style account
 linking. Local-function and MCP users never touch this; everything here
-lives in the separate [`shankit-connectors`](../packages/shankit-connectors)
+lives in the separate [`throukit-connectors`](../packages/throukit-connectors)
 package.
 
 ```bash
-pip install shankit-connectors[composio]
+pip install throukit-connectors[composio]
 ```
 
 The litmus for this layer (design §4): **you could swap Composio for a
@@ -16,7 +16,7 @@ with a connection lifecycle bolted on.
 
 ## The contract
 
-A `Connector` is a `shankit.ToolSource` — the same two-method seam the agent
+A `Connector` is a `throukit.ToolSource` — the same two-method seam the agent
 loop already speaks (`list_tools` / `execute`) — **plus** three lifecycle
 methods consumed only by your connection UI:
 
@@ -42,7 +42,7 @@ credentials to use by reading your plain data off the opaque per-run
 context, through an extractor **you** supply:
 
 ```python
-from shankit_connectors import ComposioConnector
+from throukit_connectors import ComposioConnector
 
 gmail = ComposioConnector(
     toolkit="GMAIL",
@@ -111,12 +111,12 @@ the remedy rather than an opaque "failed unexpectedly".
 
 ## Writing your own connector
 
-Subclass `shankit_connectors.Connector`, implement the two seam methods and
+Subclass `throukit_connectors.Connector`, implement the two seam methods and
 the three lifecycle methods, and keep every vendor concept inside your
 module. `ComposioConnector`
-([source](../packages/shankit-connectors/src/shankit_connectors/composio.py))
+([source](../packages/throukit-connectors/src/throukit_connectors/composio.py))
 is the reference implementation; its test suite
-([tests](../packages/shankit-connectors/tests/test_composio.py)) shows how
+([tests](../packages/throukit-connectors/tests/test_composio.py)) shows how
 to verify one against a mocked SDK, including the agent-loop integration
 test proving a connector is a plain `ToolSource`.
 

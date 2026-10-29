@@ -1,14 +1,14 @@
 """Serving the event stream over SSE for the TypeScript consumer SDK.
 
-Requires: pip install shankit[anthropic] fastapi uvicorn
+Requires: pip install throukit[anthropic] fastapi uvicorn
 Run:      uvicorn examples.06_sse_server:app --reload
-Consume:  see examples/07_ts_consumer.ts (@shankit/client)
+Consume:  see examples/07_ts_consumer.ts (@throukit/client)
 """
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from shankit import Agent, sse_stream, tool
+from throukit import Agent, sse_stream, tool
 
 
 @tool

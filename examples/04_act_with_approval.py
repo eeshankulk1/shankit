@@ -5,15 +5,15 @@ approval -> act. Deterministic code routing + shared state + a durable
 checkpoint at every router boundary; the human approval is just an
 Interrupt at one of those boundaries.
 
-EXPERIMENTAL API (shankit.experimental.graph).
+EXPERIMENTAL API (throukit.experimental.graph).
 
-Requires: pip install shankit[anthropic]  and  ANTHROPIC_API_KEY set.
+Requires: pip install throukit[anthropic]  and  ANTHROPIC_API_KEY set.
 """
 
 import asyncio
 
-from shankit import Agent, SqliteCheckpointer, tool
-from shankit.experimental.graph import Interrupt, Network, agent_step
+from throukit import Agent, SqliteCheckpointer, tool
+from throukit.experimental.graph import Interrupt, Network, agent_step
 
 
 @tool

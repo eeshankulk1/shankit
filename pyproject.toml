@@ -4,7 +4,7 @@
 # packages editable plus this dev group into .venv (see CONTRIBUTING.md).
 
 [tool.uv.workspace]
-members = ["packages/shankit", "packages/shankit-connectors"]
+members = ["packages/throukit", "packages/throukit-connectors"]
 
 [dependency-groups]
 dev = [
@@ -56,7 +56,7 @@ ignore = [
 "examples/*" = ["E402"]
 
 [tool.pyright]
-include = ["packages/shankit/src", "packages/shankit-connectors/src", "scripts"]
+include = ["packages/throukit/src", "packages/throukit-connectors/src", "scripts"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 venvPath = "."

@@ -1,13 +1,13 @@
 """The evaluation harness: datasets, scorers, trajectory assertions.
 
-Requires: pip install shankit[anthropic]  and  ANTHROPIC_API_KEY set.
+Requires: pip install throukit[anthropic]  and  ANTHROPIC_API_KEY set.
 """
 
 import asyncio
 
 from pydantic import BaseModel
-from shankit import Agent, tool
-from shankit.evals import Case, Dataset, evaluate, exact_match, trajectory
+from throukit import Agent, tool
+from throukit.evals import Case, Dataset, evaluate, exact_match, trajectory
 
 
 class Verdict(BaseModel):

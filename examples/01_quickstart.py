@@ -1,13 +1,13 @@
 """Quickstart: one agent, both run modes.
 
-Requires: pip install shankit[anthropic]  and  ANTHROPIC_API_KEY set.
+Requires: pip install throukit[anthropic]  and  ANTHROPIC_API_KEY set.
 Run: python examples/01_quickstart.py
 """
 
 import asyncio
 
 from pydantic import BaseModel, Field
-from shankit import Agent, ToolError, tool
+from throukit import Agent, ToolError, tool
 
 # --- capability: tools are code -------------------------------------------
 

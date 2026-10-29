@@ -1,13 +1,13 @@
-# Contributing to shankit
+# Contributing to throukit
 
-Thanks for your interest. shankit is early and deliberately small — the most
+Thanks for your interest. throukit is early and deliberately small — the most
 useful contributions right now are bug reports, docs improvements, sharp
 questions about the API, and connectors/model clients that exercise the existing
 contracts.
 
 ## The one rule that governs new API
 
-shankit is being **harvested from a production product** ([throu](https://throu.ai))
+throukit is being **harvested from a production product** ([throu](https://throu.ai))
 rather than designed in a vacuum. The binding constraint is **API-commitment
 risk**, not build effort — un-shipping a public API is expensive.
 
@@ -53,7 +53,7 @@ cd packages/client-ts && npm ci && npm test
 
 ### Event types are generated, not hand-written
 
-`@shankit/client`'s event types are generated from the Python pydantic models by
+`@throukit/client`'s event types are generated from the Python pydantic models by
 `scripts/generate_ts_events.py`. If you change an event shape in Python,
 regenerate (drop the `--check` flag) and commit the result — CI fails on drift.
 
@@ -68,7 +68,7 @@ regenerate (drop the `--check` flag) and commit the result — CI fails on drift
   message, a sanitized tool failure) must never carry secrets, keys, or raw
   tracebacks — those go to the logs.
 - **Experimental means experimental.** New unstable surface lands under
-  `shankit.experimental.*`; stabilizing it is a deliberate move out of that
+  `throukit.experimental.*`; stabilizing it is a deliberate move out of that
   namespace, not a silent promotion.
 
 ## Reporting bugs

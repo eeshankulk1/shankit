@@ -5,20 +5,20 @@ two ways. It assumes you're comfortable with Python and `async`/`await`.
 
 ## Install
 
-shankit is a small core with opt-in extras — you only pull in the provider SDKs
+throukit is a small core with opt-in extras — you only pull in the provider SDKs
 you actually use.
 
 ```bash
-pip install shankit[anthropic]   # Anthropic models
-pip install shankit[openai]      # OpenAI models
-pip install shankit[mcp]         # MCP tool servers
-pip install shankit[otel]        # OpenTelemetry tracing
-pip install shankit[all]         # everything above
+pip install throukit[anthropic]   # Anthropic models
+pip install throukit[openai]      # OpenAI models
+pip install throukit[mcp]         # MCP tool servers
+pip install throukit[otel]        # OpenTelemetry tracing
+pip install throukit[all]         # everything above
 ```
 
 > **Not yet on PyPI.** Until the first release, install from source:
 > ```bash
-> pip install -e packages/shankit
+> pip install -e packages/throukit
 > ```
 
 Set the API key for whichever provider you're using:
@@ -37,7 +37,7 @@ is just a function decorated with `@tool`; its docstring is what the model sees.
 ```python
 import asyncio
 from pydantic import BaseModel, Field
-from shankit import Agent, ToolError, tool
+from throukit import Agent, ToolError, tool
 
 # --- Tools are code. ------------------------------------------------------
 FAKE_ORDERS = {
@@ -75,7 +75,7 @@ agent = Agent(
 ```
 
 > The `model` string **always** carries a provider prefix (`anthropic:...`,
-> `openai:...`). There is no silent default vendor. To use a provider shankit
+> `openai:...`). There is no silent default vendor. To use a provider throukit
 > doesn't know, register it with `register_provider()` or pass your own
 > `model_client=`.
 
@@ -137,7 +137,7 @@ Tool and model failures follow one uniform contract:
 - **Unexpected tool failure** — any other exception is caught, logged in full,
   and sanitized to a generic message before the model sees it. Secrets and
   tracebacks never leak into the transcript.
-- **Provider failure** — a failed model call surfaces as `shankit.ModelError`
+- **Provider failure** — a failed model call surfaces as `throukit.ModelError`
   (with `provider`, `status`, and a `retryable` flag), never a raw provider SDK
   exception. In `stream()`, framework errors arrive as a terminal `error` event.
 
