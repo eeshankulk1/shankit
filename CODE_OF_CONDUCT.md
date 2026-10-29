@@ -5,6 +5,6 @@ In short: be respectful, assume good faith, and keep discussion about the work.
 Harassment, personal attacks and discriminatory language are not welcome in
 issues, pull requests or any other project space.
 
-Report unacceptable behavior to the maintainers at eeshan@throu.ai. Reports are
+Report unacceptable behavior to the maintainers at opensource@throu.ai. Reports are
 handled privately, and the maintainers may remove comments or block accounts
 that break these rules.
