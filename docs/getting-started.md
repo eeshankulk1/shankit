@@ -5,7 +5,7 @@ two ways. It assumes you're comfortable with Python and `async`/`await`.
 
 ## Install
 
-throukit is a small core with opt-in extras - you only pull in the provider SDKs
+Throukit is a small core with opt-in extras - you only pull in the provider SDKs
 you actually use.
 
 ```bash
@@ -75,11 +75,11 @@ agent = Agent(
 ```
 
 > The `model` string **always** carries a provider prefix (`anthropic:...`,
-> `openai:...`). There is no silent default vendor. To use a provider throukit
+> `openai:...`). There is no silent default vendor. To use a provider Throukit
 > doesn't know, register it with `register_provider()` or pass your own
 > `model_client=`.
 
-## Run mode 1 - structured
+## Run mode 1: structured
 
 Call `run()` with an `output_type` to get a typed, validated deliverable. This
 is the path for skills, background jobs, and anything that produces a result
@@ -108,7 +108,7 @@ asyncio.run(main())
 any interim narration before tool calls. Score and act on `output`; display and
 persist `text`.
 
-## Run mode 2 - streaming
+## Run mode 2: streaming
 
 Call `stream()` for a live, typed event stream - text deltas, user-facing steps,
 sources, usage, and a terminal `done` (or `error`). This is the path for chat
@@ -147,6 +147,6 @@ Tool and model failures follow one uniform contract:
   the two run modes share one loop.
 - **[File-first definitions](file-first.md)** - author this same agent as a
   reviewable Markdown file.
-- **[Examples](../examples)** - runnable scripts for multi-agent, evals, SSE, and
+- **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - runnable scripts for multi-agent, evals, SSE, and
   the experimental network.
 </content>

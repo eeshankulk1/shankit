@@ -55,12 +55,12 @@ immediately).
 
 There is no `mode` key: a file is just an agent, and the caller still chooses
 `run()` vs `stream()` at call time. `output_schema` is the _only_ addition over
-Claude Code frontmatter - everything else mirrors it, and throukit diverges only
+Claude Code frontmatter - everything else mirrors it, and Throukit diverges only
 to _add_, never to rename.
 
 ## References: import vs. registry
 
-Tool and schema references use **standard Python**, not invented syntax. throukit
+Tool and schema references use **standard Python**, not invented syntax. Throukit
 disambiguates on the colon:
 
 - **`module:attribute`** → an ordinary Python import (`uvicorn`/entry-point
@@ -168,7 +168,7 @@ other: the file and the constructor produce the identical object.
 
 - **[Core concepts](concepts.md)** - the agent, the tool seam, the per-run
   context.
-- **[Example `02_file_first/`](../examples/02_file_first)** - a runnable
+- **[Example `02_file_first/`](https://github.com/throuai/throukit/tree/main/examples/02_file_first)** - a runnable
   file-first agent.
 - **[Design §5](design.md#5-signature-ergonomic-file-first-definitions)** - the
   reasoning behind the format.

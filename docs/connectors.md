@@ -2,7 +2,7 @@
 
 The opt-in integration layer for tools that need OAuth-style account
 linking. Local-function and MCP users never touch this; everything here
-lives in the separate [`throukit-connectors`](../packages/throukit-connectors)
+lives in the separate [`throukit-connectors`](https://github.com/throuai/throukit/tree/main/packages/throukit-connectors)
 package.
 
 ```bash
@@ -114,9 +114,9 @@ the remedy rather than an opaque "failed unexpectedly".
 Subclass `throukit_connectors.Connector`, implement the two seam methods and
 the three lifecycle methods, and keep every vendor concept inside your
 module. `ComposioConnector`
-([source](../packages/throukit-connectors/src/throukit_connectors/composio.py))
+([source](https://github.com/throuai/throukit/blob/main/packages/throukit-connectors/src/throukit_connectors/composio.py))
 is the reference implementation; its test suite
-([tests](../packages/throukit-connectors/tests/test_composio.py)) shows how
+([tests](https://github.com/throuai/throukit/blob/main/packages/throukit-connectors/tests/test_composio.py)) shows how
 to verify one against a mocked SDK, including the agent-loop integration
 test proving a connector is a plain `ToolSource`.
 

@@ -1,6 +1,6 @@
 # Durability & networks
 
-Durability in throukit is a **contract you back with your own storage**, not a
+Durability in Throukit is a **contract you back with your own storage**, not a
 platform you buy into. It powers long-running and scheduled agents, and - paired
 with the experimental network - durable human-in-the-loop approval pauses.
 
@@ -29,7 +29,7 @@ never assumes _where_ the state lives.
 ## Networks (experimental)
 
 For the case agents-as-tools does **not** cover - when **code, not the model,
-controls flow** - throukit ships a router-driven `Network`: deterministic routing,
+controls flow** - Throukit ships a router-driven `Network`: deterministic routing,
 cycles, state accumulated across steps, and pauses for human approval.
 
 > `throukit.experimental.*` ships with **no stability guarantee**. The namespace
@@ -127,9 +127,9 @@ semantics beyond this minimal principled slice are a documented fast-follow.
 
 ## See also
 
-- **[Example `04_act_with_approval.py`](../examples/04_act_with_approval.py)** -
+- **[Example `04_act_with_approval.py`](https://github.com/throuai/throukit/blob/main/examples/04_act_with_approval.py)** -
   the full gather → draft → approve → act slice, runnable.
 - **[Design §7.1](design.md#71-durability-built-in-v1)** and
-  **[§9](design.md#9-graph--network-escape-hatch-experimental)** - the durability
+  **[§9](design.md#9-graph-and-network-escape-hatch-experimental)** - the durability
   and network decisions and their reasoning.
 </content>

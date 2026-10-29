@@ -114,7 +114,7 @@ and assert on trajectories and outputs.
 
 ## See also
 
-- [`examples/05_evals.py`](../examples/05_evals.py) - runnable end-to-end example.
+- [`examples/05_evals.py`](https://github.com/throuai/throukit/blob/main/examples/05_evals.py) - runnable end-to-end example.
 - [Core concepts](concepts.md) - `RunResult`, trajectories, and the error contract.
 - [Design §7.2](design.md) - why evals ship in the core rather than as an add-on.
 

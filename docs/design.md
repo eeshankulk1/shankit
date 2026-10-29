@@ -12,7 +12,7 @@
 > detail isn't stated here, that's latitude, not an oversight: make the choice
 > that best serves the principles in §1.
 >
-> **Name:** Throukit (decided 2026-10-29; the working name was `shankit`,
+> **Name:** Throukit (decided 2026-10-29; the working name was `throukit`,
 > and "AgentKit" was ruled out earlier because Inngest and OpenAI both ship
 > products by that name). See §14 entry 9.
 
@@ -99,13 +99,13 @@ first-class in core.
 
 One agent primitive, runnable two ways:
 
-- **Structured** - returns a typed, validated deliverable (this is throu's
+- **Structured** - returns a typed, validated deliverable (this is Throu's
   `run_agent_loop` / skill path).
 - **Streaming** - returns a live event stream: text deltas, steps, sources, and
-  usage (this is throu's `run_chat_loop` / chat path).
+  usage (this is Throu's `run_chat_loop` / chat path).
 
 Both are the **same agent over the same underlying tool-use loop.** They are
-**not merged** (throu's standing rule) and they split on **output shape**
+**not merged** (Throu's standing rule) and they split on **output shape**
 (typed deliverable vs. streamed conversation), *not* on sync-vs-async. An agent
 is configured by: a model, instructions (static prose or a function of the run
 context), one or more tool sources, and an optional step-describer for
@@ -134,7 +134,7 @@ Hard guardrail against over-abstraction:
 ### 3.4 Multi-agent
 
 - **Default - agents as tools.** An agent can be adapted into a tool source, so
-  handing sub-agents to a parent agent *is* orchestration. This absorbs throu's
+  handing sub-agents to a parent agent *is* orchestration. This absorbs Throu's
   entire `consult_<domain>` machinery (routing, dedup, sanitized sub-agent
   failures, token accounting) into one reusable place.
 - **Escape hatch - a graph/network.** For deterministic routing, cycles, and
@@ -149,7 +149,7 @@ Hard guardrail against over-abstraction:
 
 **Framework OWNS (imposes):** the tool seam plus the small contracts that make it
 work in a loop - tool shape, a uniform error contract (how a tool failure
-returns so the loop handles it consistently; this promotes throu's hand-rolled
+returns so the loop handles it consistently; this promotes Throu's hand-rolled
 sanitized-failure path to the standard), the observability hook, and the opaque
 per-run context. **None of these mention auth.**
 
@@ -159,10 +159,10 @@ whether OAuth exists at all, which vendor.
 **Framework OFFERS (opt-in, a separate package):** a connector layer that wraps
 a tool source and owns the connection lifecycle (initiate / check-status /
 adopt-existing) for sources that need OAuth, plus one official connector
-implementation (Composio, which throu migrates onto). Local-function and MCP
+implementation (Composio, which Throu migrates onto). Local-function and MCP
 users never touch this layer.
 
-**Rationale - split by change-rate.** throu's current `Provider` conflates the
+**Rationale - split by change-rate.** Throu's current `Provider` conflates the
 runtime seam (list/execute - all the loop touches) with a vendor-shaped
 connection lifecycle (consumed only by connection UI). Splitting them keeps the
 hot seam tiny and keeps OAuth methods out of the face of anyone not doing OAuth.
@@ -228,12 +228,12 @@ the rest.
 First-class, and *user-facing* - not just dev tracing.
 
 - A pluggable **step-describer** translates a raw tool call into a user-language
-  step (a short past-tense title, optional detail, a phase). throu's
+  step (a short past-tense title, optional detail, a phase). Throu's
   `describe_step` becomes an instance of this contract - same behavior, now
   pluggable.
 - The streaming run mode emits a typed **event stream** (text deltas, steps,
   sources, artifacts, usage, done). This is the single source of truth the TS
-  consumer SDK renders and that throu's SSE maps onto directly.
+  consumer SDK renders and that Throu's SSE maps onto directly.
 - **Artifacts** are the structured-content half of that stream: a tool result
   may carry `Artifact {type, data}` payloads that the loop emits as
   `ArtifactEvent`s, accumulates on `RunResult.artifacts`, and passes through
@@ -268,7 +268,7 @@ risk, high adoption value.
 
 ### 7.3 Models
 
-A provider-neutral model-client contract (throu already has this seam).
+A provider-neutral model-client contract (Throu already has this seam).
 Anthropic and OpenAI at launch; broader provider coverage is easy to add later.
 
 ---
@@ -284,10 +284,10 @@ Anthropic and OpenAI at launch; broader provider coverage is easy to add later.
 
 ---
 
-## 9. Graph / network escape hatch (experimental)
+## 9. Graph and network escape hatch (experimental)
 
 The one genuinely shape-uncertain API. Build it in v1, ship it **flagged
-experimental**, and freeze the contract only once throu exercises it (see the
+experimental**, and freeze the contract only once Throu exercises it (see the
 validation path below). It exists for the case agents-as-tools does *not* cover:
 when **code, not the model, controls flow** - deterministic routing, cycles,
 state accumulated across steps, and pauses for human approval. Reaching for it
@@ -320,29 +320,29 @@ becoming a heavyweight graph DSL.
 human-in-the-loop interrupts** (approval pauses). **Fast-follow:** full
 resume-after-restart semantics.
 
-**Validation path.** throu's orchestrator is agents-as-tools and has no reason
+**Validation path.** Throu's orchestrator is agents-as-tools and has no reason
 to touch the graph, so to avoid shipping it vacuum-designed, it is dogfooded via
-a real throu need: **a skill that takes a consequential action** (send an email,
+a real Throu need: **a skill that takes a consequential action** (send an email,
 create a PR, transition a ticket) routed as `gather → draft → pause for user
 approval → act`. That is exactly deterministic routing + shared state +
-human-in-the-loop, and it gives throu safe write-actions as a byproduct. This
+human-in-the-loop, and it gives Throu safe write-actions as a byproduct. This
 "act-with-approval" slice is what freezes the graph contract (§12).
 
 ---
 
-## 10. Framework vs. throu boundary
+## 10. Framework vs. Throu boundary
 
-| throu today | becomes | lives in |
+| Throu today | becomes | lives in |
 |---|---|---|
 | `Provider` (Composio) | the official connector → a tool source | connector package |
 | `DomainAgent` (e.g. `GmailAgent`) | an agent bound to a tool source + a step-describer | framework |
 | `describe_step` override | a step-describer instance | framework contract, throu-authored |
-| `Skill` | a structured agent run **+ throu's** schedule id + post-processor to `tracked_items` | split |
+| `Skill` | a structured agent run **+ Throu's** schedule id + post-processor to `tracked_items` | split |
 | `RootAgent` / `consult_<domain>` | a parent agent whose tools are other agents | framework |
-| lookup/write intent split | throu policy: picks model + output shape per call | throu only |
-| cron, `tracked_items`, memory, preferences, quotas | unchanged | throu only |
+| lookup/write intent split | Throu policy: picks model + output shape per call | Throu only |
+| cron, `tracked_items`, memory, preferences, quotas | unchanged | Throu only |
 
-**Stays in throu because it's a product opinion, not a reusable primitive:**
+**Stays in Throu because it's a product opinion, not a reusable primitive:**
 scheduling, persistence, the lookup/write model policy, memory/preferences.
 
 ---
@@ -362,28 +362,28 @@ expensive), *not* build effort.
 | Durability contract | **v1, build it** (#1 gap + #1 use case) |
 | Evaluation harness | **v1, build it** |
 | Graph/network + shared state + HITL | **v1 API, experimental** - freeze later |
-| TS consumer SDK | **v1, build it** (throu needs it) |
+| TS consumer SDK | **v1, build it** (Throu needs it) |
 | Native-TS runtime, hosted platform, memory/RAG batteries | **out of scope** |
 
 ---
 
 ## 12. Rollout plan
 
-Harvest the framework from throu; do not design it in a vacuum and port throu
-last. **The framework API should never be more than one real throu usage ahead
+Harvest the framework from Throu; do not design it in a vacuum and port Throu
+last. **The framework API should never be more than one real Throu usage ahead
 of itself.**
 
 1. Finalize this design doc.
-2. Scaffold the framework repo, wired into throu as a local/editable dependency
+2. Scaffold the framework repo, wired into Throu as a local/editable dependency
    from the first line of the refactor (not a published package).
-3. Refactor throu **one vertical slice first** (a single connector, end-to-end,
+3. Refactor Throu **one vertical slice first** (a single connector, end-to-end,
    through both a structured run and a streaming chat) before porting the rest.
 4. Port the remaining domains once the slice is green.
 5. Dogfood the experimental graph via the **act-with-approval** slice (§9): one
-   throu skill that takes a consequential action behind a human-approval pause.
+   Throu skill that takes a consequential action behind a human-approval pause.
    This is what exercises - and ultimately freezes - the graph contract.
-6. Cut a versioned release / freeze the public API only after throu fully runs
-   on the framework. throu's green test suite is the acceptance criteria.
+6. Cut a versioned release / freeze the public API only after Throu fully runs
+   on the framework. Throu's green test suite is the acceptance criteria.
 
 ---
 
@@ -448,7 +448,7 @@ where the original text had a gap (flagged ⚠):
    emits `@throukit/client`'s event types from the pydantic models; CI fails
    on drift (§8).
 9. **Naming (§13) settled: Throukit.** The framework shipped under the
-   working name `shankit` until 2026-10-29, then took the name Throukit
+   working name `throukit` until 2026-10-29, then took the name Throukit
    (`throukit`, `throukit-connectors`, `@throukit/client`) before its first
    release; Throu, Inc. holds the copyright and it stays MIT.
 
@@ -500,7 +500,7 @@ where the original text had a gap (flagged ⚠):
     client, or opt in. The kwarg is only sent when opted in, because the
     declared floor (`composio>=0.8.0`) predates it and an unconditional
     forward would break every default-path user on an older SDK.
-14. **Tool-result size is a loop safety bound.** A throu production incident
+14. **Tool-result size is a loop safety bound.** A Throu production incident
     (July 2026): a lookup sub-agent deep-fetched nine un-slimmed HTML emails
     and the run died mid-turn at 244,716 tokens > the 200K context window -
     a non-retryable provider 400 the end user saw as "Gmail is unavailable".
@@ -599,7 +599,7 @@ where the original text had a gap (flagged ⚠):
       any `ContentBlock` through verbatim, so block types added later are
       scriptable without changes.
 17. **Tools that drive a browser: multimodal results, native toolsets,
-    ordered batches.** Driven by throu's browser agent on Anthropic's
+    ordered batches.** Driven by Throu's browser agent on Anthropic's
     `browser_toolset_20260801`, but each piece is generic:
     - `ToolResult.content` / `ToolResultBlock.content` may be a list of
       `TextBlock` / `ImageBlock` / `ProviderBlock` (the Anthropic
@@ -622,5 +622,5 @@ where the original text had a gap (flagged ⚠):
       between clears, and it reuses the reasoning-drop rule.
     - An `ArtifactEvent` / `SourceEvent` a running tool `emit()`s now also
       lands in `RunResult.artifacts` / `sources`: a tool can show a card
-      before it returns (throu's `browser_task` card) without the structured
+      before it returns (Throu's `browser_task` card) without the structured
       path losing it.

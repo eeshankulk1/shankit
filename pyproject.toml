@@ -19,6 +19,12 @@ dev = [
     "mcp>=1.2.0",
     "opentelemetry-api>=1.25.0",
 ]
+# The documentation site (Zensical reads mkdocs.yml):
+# `uv run --group docs zensical serve`.
+docs = [
+    "zensical>=0.0.73; python_version >= '3.11'",  # needs 3.11+; the docs job uses 3.12
+    "mkdocstrings[python]>=0.30",
+]
 
 # Lets `pytest packages/...` run from the repo root (CI does this); the same
 # settings exist in each package for standalone runs.

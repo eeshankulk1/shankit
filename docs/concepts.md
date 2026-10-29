@@ -1,6 +1,6 @@
 # Core concepts
 
-Everything in throukit is a small set of primitives; the rest is satellites. This
+Everything in Throukit is a small set of primitives; the rest is satellites. This
 page is the mental model. Read [Getting started](getting-started.md) first if you
 haven't run an agent yet.
 
@@ -108,9 +108,9 @@ Everything is a tool source behind this seam:
 | **MCP servers** | `MCPToolSource(...)` - any MCP server, first-class in core |
 | **Aggregation** | `CompositeToolSource([...])` - combine several into one |
 | **Sub-agents** | `sub_agent.as_tool()` - see [multi-agent](#multi-agent) |
-| **Connectors** | the opt-in [`throukit-connectors`](../packages/throukit-connectors) layer for OAuth sources |
+| **Connectors** | the opt-in [`throukit-connectors`](https://github.com/throuai/throukit/tree/main/packages/throukit-connectors) layer for OAuth sources |
 
-When you pass a mixed `tools=[...]` list to `Agent`, throukit folds it into a
+When you pass a mixed `tools=[...]` list to `Agent`, Throukit folds it into a
 single seam implementation for you.
 
 ### Writing a tool
@@ -247,7 +247,7 @@ accounting. Pass `output="structured"` to expose a sub-agent's schema instead of
 its text.
 
 > Pass sub-agents **as tools explicitly** (`sub.as_tool()`), never the `Agent`
-> object itself - throukit raises a `TypeError` to keep the boundary obvious.
+> object itself - Throukit raises a `TypeError` to keep the boundary obvious.
 
 A sub-agent's own steps forward live into the parent's stream as they happen -
 the parent's consumer sees them as they occur, not just as one tool result at
@@ -498,7 +498,7 @@ async def test_support_agent_checks_the_order():
 ## The event stream
 
 `stream()` (and `run(on_event=...)`) emit a closed set of typed events. Their
-types are the source of truth the [TypeScript client](../packages/client-ts)
+types are the source of truth the [TypeScript client](https://github.com/throuai/throukit/tree/main/packages/client-ts)
 generates from.
 
 | `event.type` | Payload |

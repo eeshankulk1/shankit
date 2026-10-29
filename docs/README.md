@@ -1,6 +1,6 @@
-# throukit documentation
+# Throukit documentation
 
-The complete guide to throukit - an AI agent framework that takes the
+The complete guide to Throukit - an AI agent framework that takes the
 integration seam as seriously as the agent loop itself, without imposing how
 you authenticate.
 
@@ -21,7 +21,7 @@ reference you can reach for when you need it.
 
 ## Reference
 
-- **[Examples](../examples)** - a runnable script for every major surface.
+- **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - a runnable script for every major surface.
 - **[Design decision record](design.md)** - the living spec: the thesis, the
   competitive landscape, and _why_ every primitive is shaped the way it is.
 - **[Deferred improvements](deferred-improvements.md)** - design-level changes
@@ -31,9 +31,9 @@ reference you can reach for when you need it.
 
 | Package | Role |
 |---|---|
-| [`throukit`](../packages/throukit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
-| [`throukit-connectors`](../packages/throukit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
-| [`@throukit/client`](../packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
+| [`throukit`](https://github.com/throuai/throukit/tree/main/packages/throukit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
+| [`throukit-connectors`](https://github.com/throuai/throukit/tree/main/packages/throukit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
+| [`@throukit/client`](https://github.com/throuai/throukit/tree/main/packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
 
 ---
 
