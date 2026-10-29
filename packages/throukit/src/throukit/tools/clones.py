@@ -43,8 +43,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from .._calls import ToolCallContext, current_tool_call
+from .._subagent import relay_steps
 from ..control import Budget, Refusal, RunControl
-from ..events import AgentEvent, Artifact, Source, StepEvent, WorkerEvent
+from ..events import AgentEvent, Artifact, Source, WorkerEvent
 from ..exceptions import ToolError, ToolNotFoundError
 from ..messages import Message
 from ..usage import Usage
@@ -182,20 +183,7 @@ class CloneBatch:
         """An ``on_event`` for a clone's run that relays its steps into the
         spawning run's stream: ids prefixed by the spawn call's step id and
         the clone's id, attributed ``worker=<clone id>``."""
-        call = self.call
-
-        def on_event(event: AgentEvent) -> None:
-            if isinstance(event, StepEvent):
-                call.emit(
-                    event.model_copy(
-                        update={
-                            "id": f"{call.step_id}.{spec.id}.{event.id}",
-                            "worker": event.worker or spec.id,
-                        }
-                    )
-                )
-
-        return on_event
+        return relay_steps(self.call, via=spec.id, worker=spec.id)
 
     async def run(self, spec: CloneSpec) -> CloneOutcome:
         """One clone's whole lifecycle in-process: a ``worker`` event as it

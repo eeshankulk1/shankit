@@ -144,7 +144,7 @@ slugs + Gmail slimming - inherit behavior, not just shape.
 > asserted in the test suite.
 
 **Problem.** Sub-agent usage arriving via `ToolResult.usage` is folded into
-the run total silently (`agent.py` ~line 434) - no `UsageEvent` is emitted.
+the run total silently (`agent.py`) - no `UsageEvent` is emitted.
 A streaming consumer summing `UsageEvent`s undercounts vs `DoneEvent.usage`.
 
 **Blocker.** Throu currently uses `UsageEvent` as its pass-boundary signal
@@ -167,7 +167,8 @@ A streaming consumer summing `UsageEvent`s undercounts vs `DoneEvent.usage`.
 **Problem.** Throu's `ConsultToolSource` exists mostly for policy (intent
 routing, per-turn dedup, live sub-step forwarding, source pills) - that's
 fine and stays in throu. But two generic pieces are duplicated from
-`_AgentToolSource`: sanitized sub-agent failure text and usage-on-ToolResult.
+`as_tool()`'s source (`AgentToolSource` in `_subagent.py`): sanitized sub-agent
+failure text and usage-on-ToolResult.
 If `as_tool()` grew (a) extra tool-input fields forwarded as run kwargs
 (e.g. an enum param the parent model fills in, mapped to model/instructions
 selection) and (b) an `on_event` hook for live sub-agent step forwarding,

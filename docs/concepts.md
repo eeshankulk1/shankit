@@ -446,8 +446,8 @@ model="openai:gpt-5.5"
   however it ended: the request, `streamed`, `started_at`, `duration`,
   `first_text` (seconds to the first text delta), and `response` or `error`.
   `call.cancelled` is a call the caller stopped (a cancelled task, a stream
-  closed before its response); a stream closed after its response counts as
-  `ok`. An exception from `after` is logged, never raised into the call.
+  closed before its response); once the response has arrived the call counts
+  as `ok`, however the stream ends after it. An exception from `after` is logged, never raised into the call.
 - Passing `model_client=` to `Agent` bypasses the registry entirely - bring your
   own client, and `model` becomes a bare model id.
 

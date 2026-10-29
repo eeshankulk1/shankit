@@ -42,7 +42,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from .._calls import current_tool_call
-from ..events import AgentEvent, StepEvent
+from .._subagent import relay_steps, run_sub_agent
+from ..events import AgentEvent
 from ..exceptions import ToolError, ToolNotFoundError
 from .base import ToolDef, ToolResult, ToolSource
 
@@ -99,14 +100,7 @@ class AgentDelegate(Delegate):
         arguments: Mapping[str, Any],
         on_event: EventSink,
     ) -> ToolResult:
-        result = await self.agent.run(task, context=context, output_type=str, on_event=on_event)
-        return ToolResult(
-            content=result.output or "",
-            sources=result.sources,
-            artifacts=result.artifacts,
-            usage=result.usage,
-            truncated=result.truncated,
-        )
+        return await run_sub_agent(self.agent, task, context=context, on_event=on_event)
 
 
 class DelegateToolSource(ToolSource):
@@ -237,20 +231,13 @@ class DelegateToolSource(ToolSource):
         state["tasks"].add(key)
         state["counts"][delegate.name] = state["counts"].get(delegate.name, 0) + 1
 
-        def on_event(event: AgentEvent) -> None:
-            if call is None or not isinstance(event, StepEvent):
-                return
-            call.emit(
-                event.model_copy(
-                    update={
-                        "id": f"{call.step_id}.{event.id}",
-                        "agent": event.agent or delegate.name,
-                    }
-                )
-            )
-
         try:
-            return await delegate.run(task, context=context, arguments=arguments, on_event=on_event)
+            return await delegate.run(
+                task,
+                context=context,
+                arguments=arguments,
+                on_event=relay_steps(call, agent=delegate.name),
+            )
         except Exception:
             logger.exception("Delegate %r failed", delegate.name)
             return ToolResult(

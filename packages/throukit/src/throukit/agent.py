@@ -16,17 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
-import re
 import time
-import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import (
     Any,
     Generic,
-    Literal,
     Optional,
     TypeVar,
     Union,
@@ -36,19 +32,26 @@ from typing import (
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from . import _tracing
-from ._calls import ToolCallContext, _set_current, current_tool_call
-from ._serialize import dump_str
+from ._calls import ToolCallContext, _set_current
+from ._context import (
+    append_user_text,
+    cap_result,
+    clear_images,
+    clear_results,
+    close_interrupted,
+    spill,
+    unrun_results,
+)
+from ._run_state import RunState, StopReason
+from ._subagent import AgentToolSource
 from .control import RunControl
 from .events import (
     AgentEvent,
     Artifact,
-    ArtifactEvent,
     DoneEvent,
     Source,
-    SourceEvent,
     StepEvent,
     TextDeltaEvent,
-    UsageEvent,
     error_event_for,
 )
 from .exceptions import (
@@ -58,14 +61,10 @@ from .exceptions import (
     RunTimeoutError,
     ThroukitError,
     ToolError,
-    ToolNotFoundError,
 )
 from .messages import (
-    ImageBlock,
     Message,
     PromptBlock,
-    ReasoningBlock,
-    TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     assistant_text,
@@ -91,7 +90,6 @@ from .tools.base import (
     Toolset,
     ToolSource,
     is_tool_source,
-    single_task_tool_def,
 )
 from .tools.local import FunctionTool, FunctionToolSource
 from .usage import Usage
@@ -109,19 +107,6 @@ _OUTPUT_NUDGE = f"Provide the final result now by calling the `{OUTPUT_TOOL_NAME
 Instructions = Union[SystemPrompt, Callable[[Any], Union[SystemPrompt, Awaitable[SystemPrompt]]]]
 
 ReasoningSpec = Union[bool, str, Reasoning, None]
-
-#: Why a `throukit.RunControl` ended a run early.
-StopReason = Literal["budget", "cancelled"]
-
-# Spilled results keep a head and a tail of the output inline.
-_SPILL_HEAD_CHARS = 1500
-_SPILL_TAIL_CHARS = 500
-# Context clearing leaves this much of each cleared result in place, and
-# doesn't bother with results already smaller than this.
-_CLEAR_KEEP_CHARS = 200
-_CLEAR_MIN_CHARS = 1000
-# What an image dropped by keep_recent_images leaves behind.
-_IMAGE_CLEARED = "[older image removed to save context]"
 
 #: What a run starts from: text, or text and image blocks in the order the
 #: model should read them (a photo the user attached, then their question).
@@ -419,7 +404,7 @@ class Agent:
         model call. Step ids continue the original run's numbering; the
         returned ``usage`` covers only what the resume itself spent.
         """
-        messages = _close_interrupted([coerce_message(m) for m in transcript], interrupted)
+        messages = close_interrupted([coerce_message(m) for m in transcript], interrupted)
         if not messages:
             raise ThroukitError("Agent.resume() needs a non-empty transcript.")
         effective = output_type or self.output_type
@@ -619,17 +604,6 @@ class Agent:
             output_spec = _OutputSpec(output_type)
             tool_defs = [*tool_defs, output_spec.tool_def]
 
-        messages: list[Message] = [coerce_message(m) for m in history or ()]
-        if prompt is None:
-            run_start = 0
-        else:
-            run_start = len(messages)
-            messages.append(user_message(prompt))
-        total_usage = Usage()
-        texts: list[str] = []
-        truncated = False
-        output_attempts = 0
-        force_output = False
         # A structured agent with NO real tools has nothing to explore — its
         # only job is the final_result call, so force it on every pass. Left
         # on "auto", small models often burn pass 1 answering in plain text;
@@ -639,102 +613,39 @@ class Agent:
         # [] for certain inputs). Forcing also saves that wasted first call.
         # Agents WITH tools keep "auto" — they must search before answering.
         always_force_output = output_spec is not None and not known_tools
-        # A resumed run keeps numbering its passes and steps where the
-        # original left off, so step ids stay unique across the two.
-        passes = step_counter = 0
-        for m in messages[run_start:]:
-            if m.role == "assistant":
-                passes += 1
-                step_counter += sum(
-                    1
-                    for b in m.content
-                    if isinstance(b, ToolUseBlock) and b.name != OUTPUT_TOOL_NAME
-                )
-        stopped: Optional[StopReason] = None
-        winding_down = False
-        # Shared by every tool call of this run (see ToolCallContext).
-        run_state: dict[Any, Any] = {}
-        # Context clearing bookkeeping: results already stubbed, where
-        # spilled results live, and whether the next pass must run without
-        # reasoning (its tool continuation's history was just edited).
-        cleared: set[str] = set()
-        spilled: dict[str, str] = {}
-        reasoning_off_once = False
-        last_prompt_tokens = 0
-
-        def done_event(output: Any) -> DoneEvent:
-            # text is the transcript (every pass); output is the answer.
-            return DoneEvent(
-                text="\n\n".join(texts),
-                output=output,
-                usage=total_usage,
-                truncated=truncated,
-                messages=list(messages[run_start:]),
-                stopped=stopped,
-            )
-
-        save_checkpoint = control.checkpoint if control is not None else None
-
-        async def checkpoint() -> None:
-            if save_checkpoint is not None:
-                saved = save_checkpoint(messages[run_start:])
-                if inspect.isawaitable(saved):
-                    await saved
+        run = RunState.start(
+            prompt, history, sources=sources, artifacts=artifacts, output_tool=OUTPUT_TOOL_NAME
+        )
 
         for _ in range(self.max_iterations):
             if control is not None:
                 if control.cancelled:
-                    stopped = "cancelled"
-                    yield done_event(None)
+                    run.stopped = "cancelled"
+                    yield run.done(None)
                     return
-                notes = control.drain()
-                if notes:
-                    _append_user_text(messages, "\n\n".join(notes))
-                budget = control.budget
-                limit = (
-                    budget.reached(
-                        passes=passes, elapsed_s=time.monotonic() - started, usage=total_usage
-                    )
-                    if budget is not None
-                    else None
-                )
-                if budget is not None and limit:
-                    # One last pass, tools off, to report what it has.
-                    logger.info("Agent %r: %s budget reached; winding down.", self.name, limit)
-                    winding_down = True
-                    _append_user_text(messages, budget.notice)
+                self._steer(run, control, started)
             if deadline is not None and time.monotonic() > deadline:
                 raise RunTimeoutError(
                     f"Agent {self.name!r} ran past its {self.timeout_s:g}s time limit."
                 )
-            if (
-                self.context_clear_threshold_tokens is not None
-                and last_prompt_tokens > self.context_clear_threshold_tokens
-            ):
-                if await self._clear_context(messages, cleared, spilled, workspace):
-                    reasoning_off_once = True
-                last_prompt_tokens = 0
-            if self.keep_recent_images is not None and _clear_images(
-                messages, self.keep_recent_images
-            ):
-                reasoning_off_once = True
+            await self._trim_context(run, workspace)
 
             reasoning = self.reasoning
-            if reasoning_off_once and reasoning is not None:
+            if run.reasoning_off_once and reasoning is not None:
                 reasoning = Reasoning(enabled=False)
-            reasoning_off_once = False
-            if winding_down:
+            run.reasoning_off_once = False
+            if run.winding_down:
                 tool_choice: Any = (
                     ForcedTool(name=OUTPUT_TOOL_NAME) if output_spec is not None else "none"
                 )
-            elif force_output or always_force_output:
+            elif run.force_output or always_force_output:
                 tool_choice = ForcedTool(name=OUTPUT_TOOL_NAME)
             else:
                 tool_choice = "auto"
             request = ModelRequest(
                 model=model_id,
                 system=system or None,
-                messages=messages,
+                messages=run.messages,
                 tools=tool_defs,
                 tool_choice=tool_choice,
                 max_tokens=self.max_tokens,
@@ -742,7 +653,7 @@ class Agent:
                 reasoning=reasoning,
                 agent=self.name,
             )
-            force_output = False
+            run.force_output = False
 
             # Fallback half of the model error contract: the shipped clients
             # map their SDK's exceptions to ModelError themselves (they know
@@ -771,19 +682,10 @@ class Agent:
                 )
                 raise ModelError("The model call failed.") from exc
 
-            passes += 1
             # Tagged with its model, so a run that mixes models prices right.
-            call_usage = response.usage.for_model(model_id)
-            total_usage.add(call_usage)
-            yield UsageEvent(usage=call_usage)
-            last_prompt_tokens = (
-                response.usage.input_tokens
-                + response.usage.cache_read_tokens
-                + response.usage.cache_write_tokens
-            )
-
+            yield run.record_pass(response.usage.for_model(model_id))
             if response.stop_reason == "max_tokens":
-                truncated = True
+                run.truncated = True
                 logger.warning(
                     "Agent %r: model response truncated at max_tokens=%d; "
                     "the answer (or a tool call's input) may be incomplete.",
@@ -792,16 +694,16 @@ class Agent:
                 )
 
             assistant = Message(role="assistant", content=response.content)
-            messages.append(assistant)
+            run.messages.append(assistant)
             turn_text = assistant_text(assistant)
             if turn_text:
-                texts.append(turn_text)
+                run.texts.append(turn_text)
 
             tool_uses = [b for b in assistant.content if isinstance(b, ToolUseBlock)]
 
-            if winding_down:
+            if run.winding_down:
                 # The budget's last pass is the report, whatever it holds.
-                stopped = "budget"
+                run.stopped = "budget"
                 output = None
                 for tu in tool_uses:
                     if output_spec is not None and tu.name == OUTPUT_TOOL_NAME:
@@ -811,8 +713,8 @@ class Agent:
                     output = turn_text
                 if tool_uses:
                     # Keep the transcript valid for a later continuation.
-                    messages.append(_unrun_results(tool_uses, "Not run: out of budget."))
-                yield done_event(output)
+                    run.messages.append(unrun_results(tool_uses, "Not run: out of budget."))
+                yield run.done(output)
                 return
 
             if not tool_uses and control is not None and control.has_messages:
@@ -822,63 +724,44 @@ class Agent:
 
             if not tool_uses:
                 if output_spec is not None:
-                    if output_attempts >= self.output_retries:
+                    if run.output_attempts >= self.output_retries:
                         raise OutputValidationError(
                             f"Agent {self.name!r} did not produce a structured result "
-                            f"after {output_attempts} retries."
+                            f"after {run.output_attempts} retries."
                         )
-                    output_attempts += 1
-                    messages.append(user_message(_OUTPUT_NUDGE))
-                    force_output = True
+                    run.output_attempts += 1
+                    run.messages.append(user_message(_OUTPUT_NUDGE))
+                    run.force_output = True
                     continue
                 # For output_type=str the deliverable is the final pass —
                 # the answer — not the transcript with its interim passes.
                 # This pass's text specifically: an empty final pass must not
                 # promote an earlier pass's narration to "the answer".
-                output = turn_text if output_type is str else None
-                yield done_event(output)
+                yield run.done(turn_text if output_type is str else None)
                 return
 
             if control is not None and control.cancelled:
                 # Stopped between the model's answer and its tools: none of
                 # them run, and the transcript stays valid to continue.
-                messages.append(_unrun_results(tool_uses, "Not run: stopped."))
-                stopped = "cancelled"
-                yield done_event(None)
+                run.messages.append(unrun_results(tool_uses, "Not run: stopped."))
+                run.stopped = "cancelled"
+                yield run.done(None)
                 return
 
-            await checkpoint()
+            await run.checkpoint(control)
 
             blocks_by_id: dict[str, ToolResultBlock] = {}
             finished: Optional[tuple[Any]] = None  # 1-tuple so None output is representable
             pending: list[tuple[ToolUseBlock, str, Optional[StepInfo]]] = []
-
             for tool_use in tool_uses:
                 if output_spec is not None and tool_use.name == OUTPUT_TOOL_NAME:
-                    try:
-                        finished = (output_spec.validate(tool_use.input),)
-                        blocks_by_id[tool_use.id] = ToolResultBlock(
-                            tool_use_id=tool_use.id, content="Final result recorded."
-                        )
-                    except ValidationError as exc:
-                        if output_attempts >= self.output_retries:
-                            raise OutputValidationError(
-                                f"Agent {self.name!r} produced output that failed "
-                                f"validation after {output_attempts} retries: {exc}"
-                            ) from exc
-                        output_attempts += 1
-                        blocks_by_id[tool_use.id] = ToolResultBlock(
-                            tool_use_id=tool_use.id,
-                            content=(
-                                f"The result did not match the schema:\n{exc}\n"
-                                f"Fix the issues and call `{OUTPUT_TOOL_NAME}` again."
-                            ),
-                            is_error=True,
-                        )
+                    blocks_by_id[tool_use.id], recorded = self._take_output(
+                        tool_use, output_spec, run
+                    )
+                    if recorded is not None:
+                        finished = recorded
                     continue
-
-                step_counter += 1
-                step_id = f"s{step_counter}"
+                step_id = run.next_step_id()
                 info = self._describe(tool_use, context)
                 if info is not None:
                     yield _step_event(step_id, info, "running")
@@ -891,49 +774,16 @@ class Agent:
             # While they run, events the tools push through their
             # ToolCallContext (a sub-agent's steps, a script's progress) are
             # yielded as they arrive.
-            # If the consumer closes the stream (client disconnect) while we
-            # are suspended here, cancel the in-flight tool tasks instead of
-            # orphaning them to run (and side-effect) in the background.
             live: asyncio.Queue[AgentEvent] = asyncio.Queue()
             slots, tasks = self._start_batch(
-                pending,
-                toolsets,
-                context,
-                known_tools,
-                live,
-                run_state,
-                workspace,
-                spilled,
-                pass_index=passes,
-                control=control,
+                pending, toolsets, context, known_tools, live, run, workspace, control=control
             )
-            gathered = asyncio.gather(*tasks)
-            try:
-                while not gathered.done():
-                    getter = asyncio.ensure_future(live.get())
-                    try:
-                        await asyncio.wait({gathered, getter}, return_when=asyncio.FIRST_COMPLETED)
-                    finally:
-                        if not getter.done():
-                            getter.cancel()
-                            # Await the cancellation rather than dropping
-                            # the task reference: otherwise it may still be
-                            # pending when garbage collected, which logs a
-                            # "Task was destroyed but it is pending!" warning.
-                            with contextlib.suppress(asyncio.CancelledError):
-                                await getter
-                    if getter.done() and not getter.cancelled():
-                        yield self._record_live(getter.result(), sources, artifacts)
-                while not live.empty():
-                    yield self._record_live(live.get_nowait(), sources, artifacts)
-                gathered.result()
-                results = [r for r in slots if r is not None]
-            except BaseException:
-                for task in tasks:
-                    task.cancel()
-                with contextlib.suppress(BaseException):
-                    await gathered
-                raise
+            # aclosing: a consumer that closes this stream mid-batch closes
+            # the drain too, which cancels the in-flight tools.
+            async with contextlib.aclosing(_drain_while_running(tasks, live)) as drained:
+                async for event in drained:
+                    yield run.record_live(event)
+            results = [r for r in slots if r is not None]
 
             for (tool_use, step_id, info), result in zip(pending, results, strict=True):
                 trajectory.append(
@@ -944,22 +794,8 @@ class Agent:
                         is_error=result.is_error,
                     )
                 )
-                for source in result.sources:
-                    sources.append(source)
-                    yield SourceEvent(source=source)
-                for artifact in result.artifacts:
-                    artifacts.append(artifact)
-                    yield ArtifactEvent(artifact=artifact)
-                if result.usage is not None:
-                    # Usage a tool reports (e.g. a sub-agent's spend) is part
-                    # of the run total, so it must also be part of the stream:
-                    # UsageEvents always sum to DoneEvent.usage.
-                    total_usage.add(result.usage)
-                    yield UsageEvent(usage=result.usage)
-                if result.truncated:
-                    # A truncated sub-agent answer corrupts this run's
-                    # deliverable just like a truncated own pass would.
-                    truncated = True
+                for event in run.record_result(result):
+                    yield event
                 if info is not None:
                     yield _step_event(step_id, info, "error" if result.is_error else "done")
                 blocks_by_id[tool_use.id] = ToolResultBlock(
@@ -969,17 +805,19 @@ class Agent:
                     toolset=tool_use.toolset,
                 )
 
-            messages.append(Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses]))
-            await checkpoint()
+            run.messages.append(
+                Message(role="user", content=[blocks_by_id[tu.id] for tu in tool_uses])
+            )
+            await run.checkpoint(control)
 
             if finished is not None:
-                yield done_event(finished[0])
+                yield run.done(finished[0])
                 return
             if any(result.end_run for result in results):
                 # A tool ended the run (ToolResult.end_run): every result in
                 # the batch has landed, and the model gets no further pass.
                 # A structured run ends without a validated output.
-                yield done_event(turn_text if output_type is str else None)
+                yield run.done(turn_text if output_type is str else None)
                 return
 
         raise MaxIterationsError(
@@ -988,6 +826,73 @@ class Agent:
 
     # ------------------------------------------------------------- helpers
 
+    def _steer(self, run: RunState, control: RunControl, started: float) -> None:
+        """Before a pass: hand the model the messages queued on ``control``,
+        and start winding down once its budget is reached."""
+        notes = control.drain()
+        if notes:
+            append_user_text(run.messages, "\n\n".join(notes))
+        budget = control.budget
+        limit = (
+            budget.reached(passes=run.passes, elapsed_s=time.monotonic() - started, usage=run.usage)
+            if budget is not None
+            else None
+        )
+        if budget is not None and limit:
+            # One last pass, tools off, to report what it has.
+            logger.info("Agent %r: %s budget reached; winding down.", self.name, limit)
+            run.winding_down = True
+            append_user_text(run.messages, budget.notice)
+
+    async def _trim_context(self, run: RunState, workspace: Optional[Workspace]) -> None:
+        """Before a pass: context clearing (``context_clear_*``,
+        ``keep_recent_images``). A clear runs the next pass without
+        reasoning."""
+        if (
+            self.context_clear_threshold_tokens is not None
+            and run.last_prompt_tokens > self.context_clear_threshold_tokens
+        ):
+            if await clear_results(
+                run.messages,
+                keep=self.context_keep_recent_results,
+                cleared=run.cleared,
+                spilled=run.spilled,
+                workspace=workspace,
+                agent_name=self.name,
+            ):
+                run.reasoning_off_once = True
+            run.last_prompt_tokens = 0
+        if self.keep_recent_images is not None and clear_images(
+            run.messages, self.keep_recent_images
+        ):
+            run.reasoning_off_once = True
+
+    def _take_output(
+        self, tool_use: ToolUseBlock, spec: _OutputSpec, run: RunState
+    ) -> tuple[ToolResultBlock, Optional[tuple[Any]]]:
+        """Answer a ``final_result`` call: its validated result (a 1-tuple)
+        when it matches the schema, else a retry request until
+        ``output_retries`` runs out."""
+        try:
+            recorded = (spec.validate(tool_use.input),)
+        except ValidationError as exc:
+            if run.output_attempts >= self.output_retries:
+                raise OutputValidationError(
+                    f"Agent {self.name!r} produced output that failed "
+                    f"validation after {run.output_attempts} retries: {exc}"
+                ) from exc
+            run.output_attempts += 1
+            retry = ToolResultBlock(
+                tool_use_id=tool_use.id,
+                content=(
+                    f"The result did not match the schema:\n{exc}\n"
+                    f"Fix the issues and call `{OUTPUT_TOOL_NAME}` again."
+                ),
+                is_error=True,
+            )
+            return retry, None
+        return ToolResultBlock(tool_use_id=tool_use.id, content="Final result recorded."), recorded
+
     def _start_batch(
         self,
         pending: list[tuple[ToolUseBlock, str, Optional[StepInfo]]],
@@ -995,11 +900,9 @@ class Agent:
         context: Any,
         known_tools: set[str],
         live: asyncio.Queue[AgentEvent],
-        run_state: dict[Any, Any],
+        run: RunState,
         workspace: Optional[Workspace],
-        spilled: dict[str, str],
         *,
-        pass_index: int = 0,
         control: Optional[RunControl] = None,
     ) -> tuple[list[Optional[ToolResult]], list[asyncio.Future[None]]]:
         """Start one model turn's tool calls. Calls run concurrently, except
@@ -1016,13 +919,13 @@ class Agent:
                 step_id=sid,
                 agent_name=self.name,
                 emit=live.put_nowait,
-                run_state=run_state,
-                pass_index=pass_index,
+                run_state=run.tool_state,
+                pass_index=run.passes,
                 agent=self,
                 control=control,
             )
             slots[index] = await self._execute_tool(
-                tu, context, known_tools, call, workspace, spilled
+                tu, context, known_tools, call, workspace, run.spilled
             )
 
         async def run_ordered(indices: list[int], toolset: Toolset) -> None:
@@ -1045,19 +948,6 @@ class Agent:
         for toolset, indices in groups.values():
             tasks.append(asyncio.ensure_future(run_ordered(indices, toolset)))
         return slots, tasks
-
-    @staticmethod
-    def _record_live(
-        event: AgentEvent, sources: list[Source], artifacts: list[Artifact]
-    ) -> AgentEvent:
-        """A source or artifact a running tool emitted live (a card that must
-        show before a long tool returns) belongs to the run's results too,
-        like one returned on its ``ToolResult``."""
-        if isinstance(event, ArtifactEvent):
-            artifacts.append(event.artifact)
-        elif isinstance(event, SourceEvent):
-            sources.append(event.source)
-        return event
 
     async def _resolve_instructions(self, context: Any) -> SystemPrompt:
         instructions = self.instructions
@@ -1109,156 +999,25 @@ class Agent:
             with _tracing.span("throukit.tool.execute", tool=tool_use.name, agent=self.name):
                 raw = await self.tool_source.execute(tool_use.name, tool_use.input, context)
         except ToolError as exc:
-            return self._cap_result(tool_use.name, ToolResult(content=str(exc), is_error=True))
+            raw = ToolResult(content=str(exc), is_error=True)
         except Exception:
             logger.exception("Tool %r failed", tool_use.name)
             return ToolResult(
                 content=f"The tool {tool_use.name!r} failed unexpectedly.", is_error=True
             )
-        if isinstance(raw, str):  # leniency for duck-typed sources
-            raw = ToolResult(content=raw)
-        raw = await self._spill(tool_use, raw, workspace, spilled)
-        return self._cap_result(tool_use.name, raw)
-
-    async def _spill(
-        self,
-        tool_use: ToolUseBlock,
-        result: ToolResult,
-        workspace: Optional[Workspace],
-        spilled: Optional[dict[str, str]],
-    ) -> ToolResult:
-        """Write an oversized result to a workspace file and hand the model
-        its head, tail, and path instead (``spill_threshold_chars``). Falls
-        through unchanged — to the lossy ``max_tool_result_chars`` cap —
-        when there's no workspace or the write fails."""
-        threshold = self.spill_threshold_chars
-        if (
-            workspace is None
-            or threshold is None
-            or not isinstance(result.content, str)
-            or len(result.content) <= threshold
-        ):
-            return result
-        path = await _save_output(workspace, tool_use.name, result.content)
-        if path is None:
-            return result
-        if spilled is not None:
-            spilled[tool_use.id] = path
-        content = result.content
-        preview = (
-            content[:_SPILL_HEAD_CHARS]
-            + f"\n\n… [{len(content) - _SPILL_HEAD_CHARS - _SPILL_TAIL_CHARS} characters omitted] …\n\n"
-            + content[-_SPILL_TAIL_CHARS:]
-            + f"\n\n[This output was {len(content)} characters, so it was saved to {path}. "
-            "Search or slice that file (rg, jq, head, python3, or Read with offset/limit) "
-            "instead of reading it all.]"
-        )
-        logger.info(
-            "Agent %r: tool %r returned %d chars; spilled to %s.",
-            self.name,
-            tool_use.name,
-            len(content),
-            path,
-        )
-        return result.model_copy(update={"content": preview})
-
-    async def _clear_context(
-        self,
-        messages: list[Message],
-        cleared: set[str],
-        spilled: dict[str, str],
-        workspace: Optional[Workspace],
-    ) -> bool:
-        """Stub out all but the newest tool results (``context_clear_*``).
-
-        Rewrites ``messages`` in place with new Message objects (never
-        mutates the originals, which may be the caller's history). Returns
-        whether anything was cleared."""
-        positions = [
-            (mi, bi)
-            for mi, message in enumerate(messages)
-            for bi, block in enumerate(message.content)
-            if isinstance(block, ToolResultBlock)
-        ]
-        keep = self.context_keep_recent_results
-        candidates = positions[:-keep] if keep else positions
-        changed: dict[int, list[Any]] = {}
-        count = 0
-        for mi, bi in candidates:
-            block = messages[mi].content[bi]
-            assert isinstance(block, ToolResultBlock)
-            text = content_text(block.content)
-            if block.tool_use_id in cleared or len(text) < _CLEAR_MIN_CHARS:
-                continue
-            path = spilled.get(block.tool_use_id)
-            if path is None and workspace is not None:
-                path = await _save_output(workspace, "cleared", text)
-            where = f" Full output: {path}." if path else ""
-            stub = (
-                text[:_CLEAR_KEEP_CHARS] + f"… [older tool output cleared to save context.{where}]"
+        else:
+            if isinstance(raw, str):  # leniency for duck-typed sources
+                raw = ToolResult(content=raw)
+            raw = await spill(
+                tool_use,
+                raw,
+                workspace=workspace,
+                threshold=self.spill_threshold_chars,
+                spilled=spilled,
+                agent_name=self.name,
             )
-            blocks = changed.setdefault(mi, list(messages[mi].content))
-            blocks[bi] = block.model_copy(update={"content": stub})
-            cleared.add(block.tool_use_id)
-            count += 1
-        if not count:
-            return False
-        for mi, blocks in changed.items():
-            messages[mi] = messages[mi].model_copy(update={"content": blocks})
-        _drop_reasoning(messages)
-        logger.info("Agent %r: cleared %d older tool results from context.", self.name, count)
-        return True
-
-    def _cap_result(self, tool_name: str, result: ToolResult) -> ToolResult:
-        """Apply ``max_tool_result_chars`` (loop safety bound, like
-        ``max_iterations``): one oversized result must not be able to exceed
-        the model's context window and kill the run. Applied at this choke
-        point so every source — local functions, MCP, connectors, sub-agents,
-        and ``ToolError`` text — is covered uniformly. The capped content is
-        what the model, the trajectory, and evals all see."""
-        cap = self.max_tool_result_chars
-        if cap is None or len(content_text(result.content)) <= cap:
-            return result
-        if not isinstance(result.content, str):
-            # Blocks: spend the cap across the text blocks in emission order
-            # (images and provider blocks are bounded by their producers, not
-            # touched here) — capping each block independently would let a
-            # result with several under-cap text blocks sail past the cap in
-            # aggregate, which is exactly the failure this guards against.
-            remaining = cap
-            capped: list[Any] = []
-            for b in result.content:
-                if not isinstance(b, TextBlock):
-                    capped.append(b)
-                elif remaining <= 0:
-                    continue
-                elif len(b.text) > remaining:
-                    capped.append(
-                        b.model_copy(
-                            update={
-                                "text": b.text[:remaining] + f"… [truncated at {cap} characters]"
-                            }
-                        )
-                    )
-                    remaining = 0
-                else:
-                    capped.append(b)
-                    remaining -= len(b.text)
-            return result.model_copy(update={"content": capped, "truncated": True})
-        logger.warning(
-            "Agent %r: tool %r returned %d chars; capped at max_tool_result_chars=%d.",
-            self.name,
-            tool_name,
-            len(result.content),
-            cap,
-        )
-        # Copy, don't mutate: the source may retain its ToolResult object.
-        return result.model_copy(
-            update={
-                "content": result.content[:cap]
-                + f"… [truncated: tool result exceeded {cap} characters]",
-                "truncated": True,
-            }
+        return cap_result(
+            raw, cap=self.max_tool_result_chars, tool_name=tool_use.name, agent_name=self.name
         )
 
     # ------------------------------------------------------------- as_tool
@@ -1290,110 +1049,7 @@ class Agent:
                 f"Agent {self.name!r} has no structured output schema; "
                 "declare output_type on the agent to expose it structured."
             )
-        return _AgentToolSource(self, name=name, description=description, output=output)
-
-
-class _AgentToolSource(ToolSource):
-    def __init__(
-        self, agent: Agent, *, name: Optional[str], description: Optional[str], output: str
-    ) -> None:
-        self.agent = agent
-        self.tool_name = _sanitize_tool_name(name or agent.name)
-        self.description = (
-            description
-            or agent.description
-            or f"Delegate a task to the {agent.name} agent. Describe the task in plain language."
-        )
-        self.output = output
-
-    async def list_tools(self, context: Any = None) -> Sequence[ToolDef]:
-        return [single_task_tool_def(self.tool_name, self.description)]
-
-    async def execute(
-        self, name: str, arguments: dict[str, Any], context: Any = None
-    ) -> ToolResult:
-        if name != self.tool_name:
-            raise ToolNotFoundError(name)
-        task = str(arguments.get("task", "")).strip()
-        if not task:
-            raise ToolError("Provide a 'task' describing what this agent should do.")
-        call = current_tool_call()
-
-        def forward(event: AgentEvent) -> None:
-            # The sub-agent's steps surface live in the parent's stream.
-            if call is not None and isinstance(event, StepEvent):
-                call.emit(
-                    event.model_copy(
-                        update={
-                            "id": f"{call.step_id}.{event.id}",
-                            "agent": event.agent or self.agent.name,
-                        }
-                    )
-                )
-
-        try:
-            if self.output == "structured":
-                result = await self.agent.run(task, context=context, on_event=forward)
-                content = dump_str(result.output)
-            else:
-                result = await self.agent.run(
-                    task, context=context, output_type=str, on_event=forward
-                )
-                content = result.output
-        except Exception:
-            # Sanitized sub-agent failure: the parent model gets a calm,
-            # uniform message; the real traceback goes to the logs.
-            logger.exception("Sub-agent %r failed", self.agent.name)
-            return ToolResult(
-                content=f"The {self.agent.name} agent could not complete the task.",
-                is_error=True,
-            )
-        return ToolResult(
-            content=content,
-            sources=result.sources,
-            artifacts=result.artifacts,
-            usage=result.usage,
-            truncated=result.truncated,
-        )
-
-
-def _drop_reasoning(messages: list[Message]) -> None:
-    """Edited history invalidates the reasoning after the edit, and a
-    reasoning block is only valid in the exact conversation that produced
-    it - drop them all rather than send stale ones."""
-    for mi, message in enumerate(messages):
-        if any(isinstance(b, ReasoningBlock) for b in message.content):
-            blocks = [b for b in message.content if not isinstance(b, ReasoningBlock)]
-            messages[mi] = message.model_copy(update={"content": blocks})
-
-
-def _clear_images(messages: list[Message], keep: int) -> bool:
-    """``keep_recent_images``: once tool results hold ``2 * keep`` images,
-    replace all but the newest ``keep`` with a stub. Rewrites ``messages``
-    in place with new Message objects (never mutating the originals);
-    returns whether anything changed."""
-    spots = [
-        (mi, bi, ci)
-        for mi, message in enumerate(messages)
-        for bi, block in enumerate(message.content)
-        if isinstance(block, ToolResultBlock) and not isinstance(block.content, str)
-        for ci, item in enumerate(block.content)
-        if isinstance(item, ImageBlock)
-    ]
-    if len(spots) < 2 * keep:
-        return False
-    changed: dict[int, list[Any]] = {}
-    for mi, bi, ci in spots[:-keep]:
-        blocks = changed.setdefault(mi, list(messages[mi].content))
-        block = blocks[bi]
-        items = list(block.content)
-        items[ci] = TextBlock(text=_IMAGE_CLEARED)
-        blocks[bi] = block.model_copy(update={"content": items})
-    for mi, blocks in changed.items():
-        messages[mi] = messages[mi].model_copy(update={"content": blocks})
-    _drop_reasoning(messages)
-    logger.info("Cleared %d older images from context.", len(spots) - keep)
-    return True
+        return AgentToolSource(self, name=name, description=description, output=output)
 
 
 def _step_event(step_id: str, info: StepInfo, status: str) -> StepEvent:
@@ -1407,15 +1063,40 @@ def _step_event(step_id: str, info: StepInfo, status: str) -> StepEvent:
     )
 
 
-def _append_user_text(messages: list[Message], text: str) -> None:
-    """Add ``text`` for the model after the last message: into it when it
-    is already the user's (a pass's tool results, or the prompt), else as a
-    new user turn. Never mutates the message objects themselves."""
-    if messages and messages[-1].role == "user":
-        last = messages[-1]
-        messages[-1] = last.model_copy(update={"content": [*last.content, TextBlock(text=text)]})
-    else:
-        messages.append(user_message(text))
+async def _drain_while_running(
+    tasks: list[asyncio.Future[None]], live: asyncio.Queue[AgentEvent]
+) -> AsyncGenerator[AgentEvent, None]:
+    """Yield the events tools push onto ``live`` as they arrive, until every
+    task is done, then raise the first task failure if there was one. If the
+    consumer stops early (it closed the stream, or the run was cancelled),
+    the tasks are cancelled instead of orphaned to run (and side-effect) in
+    the background."""
+    gathered = asyncio.gather(*tasks)
+    try:
+        while not gathered.done():
+            getter = asyncio.ensure_future(live.get())
+            try:
+                await asyncio.wait({gathered, getter}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if not getter.done():
+                    getter.cancel()
+                    # Await the cancellation rather than dropping the task
+                    # reference: otherwise it may still be pending when
+                    # garbage collected, which logs a "Task was destroyed but
+                    # it is pending!" warning.
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await getter
+            if getter.done() and not getter.cancelled():
+                yield getter.result()
+        while not live.empty():
+            yield live.get_nowait()
+        gathered.result()
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        with contextlib.suppress(BaseException):
+            await gathered
+        raise
 
 
 def _recorded_output(messages: list[Message], spec: _OutputSpec) -> Optional[tuple[Any]]:
@@ -1435,43 +1116,6 @@ def _recorded_output(messages: list[Message], spec: _OutputSpec) -> Optional[tup
             with contextlib.suppress(ValidationError):
                 return (spec.validate(use.input),)
     return None
-
-
-def _close_interrupted(messages: list[Message], text: str) -> list[Message]:
-    """A transcript whose last pass called tools that never returned gets
-    an error result for each, so the conversation is valid to continue."""
-    if not messages or messages[-1].role != "assistant":
-        return messages
-    in_flight = [b for b in messages[-1].content if isinstance(b, ToolUseBlock)]
-    return [*messages, _unrun_results(in_flight, text)] if in_flight else messages
-
-
-def _unrun_results(tool_uses: Sequence[ToolUseBlock], text: str) -> Message:
-    """An error result saying ``text`` for each of ``tool_uses`` that never
-    ran: every tool call must be answered for the transcript to be valid."""
-    return Message(
-        role="user",
-        content=[
-            ToolResultBlock(tool_use_id=tu.id, content=text, is_error=True) for tu in tool_uses
-        ],
-    )
-
-
-async def _save_output(workspace: Workspace, tool_name: str, content: str) -> Optional[str]:
-    """Save a tool output to ``<tmp>/tool-output/``; the path, or ``None``
-    if the workspace refused the write."""
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_name)[:40] or "tool"
-    path = f"{workspace.tmp.rstrip('/')}/tool-output/{safe}-{uuid.uuid4().hex[:8]}.txt"
-    try:
-        await workspace.write_file(path, content.encode("utf-8"))
-    except Exception:
-        logger.exception("Could not save tool output to the workspace; falling back to the cap.")
-        return None
-    return path
-
-
-def _sanitize_tool_name(name: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", name.strip()) or "agent"
 
 
 def _normalize_tools(items: Sequence[Any]) -> Optional[ToolSource]:

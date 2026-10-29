@@ -271,6 +271,38 @@ async def test_cancelled_stream_cancels_inflight_tools(make_agent):
     assert not state["finished"]
 
 
+async def test_closing_a_stream_on_a_live_event_cancels_inflight_tools(make_agent):
+    """Closing the stream while it is paused on an event a running tool
+    pushed (a sub-agent's step) cancels that tool at once."""
+    import asyncio
+
+    from throukit import StepEvent, current_tool_call
+
+    state = {"cancelled": False}
+
+    @tool
+    async def slow() -> str:
+        call = current_tool_call()
+        assert call is not None
+        call.emit(StepEvent(id=f"{call.step_id}.s1", title="Working", status="running"))
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        return "done"
+
+    agent, _ = make_agent(
+        [tool_call_response("slow", {}), text_response("never reached")], tools=[slow]
+    )
+    stream = agent.stream("go")
+    async for event in stream:
+        if isinstance(event, StepEvent) and event.id == "s1.s1":
+            break
+    await stream.aclose()
+    assert state["cancelled"]
+
+
 async def test_a_prompt_with_an_image_reaches_the_model_and_the_transcript(make_agent):
     """A prompt may be blocks: the photo rides the user turn, in order, on
     every pass, and the run's transcript keeps it."""
