@@ -1,0 +1,20 @@
+name: Feature request
+description: Propose a change to Throukit's API or behavior.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Throukit adds API only when a real use needs it today. Tell us about the use first; the shape of the API comes after.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are building
+      description: The agent or product you are working on, and where Throukit gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: The change you have in mind, and what you do today instead.

@@ -1,13 +1,13 @@
-# Contributing to throukit
+# Contributing to Throukit
 
-Thanks for your interest. throukit is early and deliberately small - the most
+Thanks for your interest. Throukit is early and deliberately small - the most
 useful contributions right now are bug reports, docs improvements, sharp
 questions about the API, and connectors/model clients that exercise the existing
 contracts.
 
 ## The one rule that governs new API
 
-throukit is being **harvested from a production product** ([throu](https://throu.ai))
+Throukit is being **harvested from a production product** ([Throu](https://throu.ai))
 rather than designed in a vacuum. The binding constraint is **API-commitment
 risk**, not build effort - un-shipping a public API is expensive.
 
@@ -71,10 +71,36 @@ regenerate (drop the `--check` flag) and commit the result - CI fails on drift.
   `throukit.experimental.*`; stabilizing it is a deliberate move out of that
   namespace, not a silent promotion.
 
+## Documentation
+
+The docs site is built from `docs/` with [Zensical](https://zensical.org)
+(Python 3.11+). Preview it locally while you write:
+
+```bash
+uv sync --all-packages --group docs
+uv run zensical serve
+```
+
+## Changelog and releases
+
+Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md) for anything a
+user would notice, and put breaking changes under **Breaking**.
+
+To release, a maintainer sets the same version in all three packages
+(`packages/throukit/src/throukit/__init__.py`,
+`packages/throukit-connectors/pyproject.toml`,
+`packages/client-ts/package.json`), moves the Unreleased notes under that
+version, and pushes a tag such as `v0.2.0`. The release workflow checks that
+the versions match, then publishes to PyPI and npm and creates the GitHub
+release.
+
 ## Reporting bugs
 
 Open an issue with a minimal reproduction and what you expected. Docs gaps count
 as bugs - if something in [`docs/`](docs/README.md) is wrong or missing, say so.
+Report security issues privately, as [SECURITY.md](SECURITY.md) describes.
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

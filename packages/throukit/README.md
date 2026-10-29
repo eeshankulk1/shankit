@@ -1,4 +1,4 @@
-# throukit
+# Throukit
 
 An open-source AI agent framework that takes the **integration seam** - the
 boundary between an agent and the real, authenticated external tools it acts

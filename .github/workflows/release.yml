@@ -1,0 +1,81 @@
+name: Release
+
+# Push a tag like v0.2.0 to publish every package at that version. The tag
+# must match the version in all three packages, or nothing is published.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches every package version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          core=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' packages/throukit/src/throukit/__init__.py)
+          conn=$(sed -n 's/^version = "\(.*\)"/\1/p' packages/throukit-connectors/pyproject.toml)
+          ts=$(node -p "require('./packages/client-ts/package.json').version")
+          echo "tag=$tag throukit=$core throukit-connectors=$conn @throukit/client=$ts"
+          [ "$tag" = "$core" ] && [ "$tag" = "$conn" ] && [ "$tag" = "$ts" ]
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  pypi:
+    needs: check
+    runs-on: ubuntu-latest
+    # PyPI trusted publishing: PyPI trusts this workflow, so no API token is
+    # stored. Set up once per project at pypi.org (publisher: this repo,
+    # workflow release.yml, environment pypi).
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build wheels and sdists
+        run: uv build --all-packages
+      - name: Validate package metadata
+        run: uvx twine check dist/*
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Build, test and publish @throukit/client
+        working-directory: packages/client-ts
+        # npm trusted publishing needs no token once set up at npmjs.com.
+        # The very first publish, before the package exists, uses an NPM_TOKEN
+        # secret on the npm environment; delete the secret afterwards.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci
+          npm publish --provenance --access public
+
+  github-release:
+    needs: [check, pypi, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Throukit $GITHUB_REF_NAME" --notes "See [CHANGELOG.md](https://github.com/throuai/throukit/blob/main/CHANGELOG.md) for what changed."

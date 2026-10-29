@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Typed TypeScript consumer for throukit agent event streams over SSE/HTTP. Consumes agent runs; does not run agents.",
   "license": "MIT",
+  "author": "Throu, Inc.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -34,15 +35,17 @@
     "url": "git+https://github.com/throuai/throukit.git",
     "directory": "packages/client-ts"
   },
-  "homepage": "https://github.com/throuai/throukit/tree/main/packages/client-ts",
+  "homepage": "https://throuai.github.io/throukit/",
   "bugs": {
     "url": "https://github.com/throuai/throukit/issues"
   },
   "keywords": [
     "ai",
     "agents",
+    "llm",
     "sse",
-    "streaming"
+    "streaming",
+    "throukit"
   ],
   "engines": {
     "node": ">=18"

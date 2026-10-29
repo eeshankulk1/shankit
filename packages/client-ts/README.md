@@ -1,6 +1,6 @@
 # @throukit/client
 
-Typed TypeScript consumer for [throukit](https://github.com/throuai/throukit) agent event streams over SSE/HTTP. It consumes agent runs; it does not run agents.
+Typed TypeScript consumer for [Throukit](https://github.com/throuai/throukit) agent event streams over SSE/HTTP. It consumes agent runs; it does not run agents.
 
 Event types are **generated** from the Python pydantic models (`throukit.events`), so the two languages cannot drift - CI enforces it.
 
@@ -42,10 +42,10 @@ const done = await collectRun(streamEvents(url, options));
 console.log(done.text, done.usage);
 ```
 
-- `parseSSEStream(body)` - parse any `ReadableStream<Uint8Array>` of throukit SSE messages (bring your own transport).
+- `parseSSEStream(body)` - parse any `ReadableStream<Uint8Array>` of Throukit SSE messages (bring your own transport).
 - `isDone(event)` / `isError(event)` - type-narrowing helpers.
 
-The parser targets throukit's wire format (JSON in `data:`, type discriminant in the payload). It handles LF/CRLF/CR line endings and multi-line `data` fields; it does not implement `id:`/`retry:` reconnection semantics - runs are one-shot POST streams.
+The parser targets Throukit's wire format (JSON in `data:`, type discriminant in the payload). It handles LF/CRLF/CR line endings and multi-line `data` fields; it does not implement `id:`/`retry:` reconnection semantics - runs are one-shot POST streams.
 
 ## Server side
 
@@ -59,4 +59,4 @@ return StreamingResponse(
 )
 ```
 
-See the [throukit docs](https://github.com/throuai/throukit/blob/main/docs/README.md) for the full framework.
+See the [Throukit docs](https://github.com/throuai/throukit/blob/main/docs/README.md) for the full framework.

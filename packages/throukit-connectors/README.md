@@ -1,8 +1,8 @@
 # throukit-connectors
 
-The **opt-in** connector layer for [throukit](https://github.com/throuai/throukit).
+The **opt-in** connector layer for [Throukit](https://github.com/throuai/throukit).
 
-A connector *is* a throukit tool source, plus ownership of the connection
+A connector *is* a Throukit tool source, plus ownership of the connection
 lifecycle (initiate / check-status / adopt-existing) for sources that need
 OAuth. Local-function and MCP users never touch this package - that's the
 point (design §4): the framework defines the integration **contract**, never
