@@ -33,4 +33,4 @@ The litmus for this layer: you could swap Composio for a completely different
 system without the framework noticing.
 
 Full guide - the contract, the lifecycle, multi-tenant identity scoping, and
-every `ComposioConnector` option: [docs/connectors.md](../../docs/connectors.md).
+every `ComposioConnector` option: [docs/connectors.md](https://github.com/throuai/throukit/blob/main/docs/connectors.md).

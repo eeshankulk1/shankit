@@ -12,20 +12,20 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Tag matches every package version
-        id: version
         run: |
           tag="${GITHUB_REF_NAME#v}"
           core=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' packages/throukit/src/throukit/__init__.py)
           conn=$(sed -n 's/^version = "\(.*\)"/\1/p' packages/throukit-connectors/pyproject.toml)
           ts=$(node -p "require('./packages/client-ts/package.json').version")
           echo "tag=$tag throukit=$core throukit-connectors=$conn @throukit/client=$ts"
-          [ "$tag" = "$core" ] && [ "$tag" = "$conn" ] && [ "$tag" = "$ts" ]
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          # An && chain would not stop the job unless its last test failed.
+          if [ "$tag" != "$core" ] || [ "$tag" != "$conn" ] || [ "$tag" != "$ts" ]; then
+            echo "::error::The tag does not match every package version"
+            exit 1
+          fi
 
   pypi:
     needs: check

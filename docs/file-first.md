@@ -172,4 +172,3 @@ other: the file and the constructor produce the identical object.
   file-first agent.
 - **[Design §5](design.md#5-signature-ergonomic-file-first-definitions)** - the
   reasoning behind the format.
-</content>

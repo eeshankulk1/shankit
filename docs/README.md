@@ -21,6 +21,8 @@ reference you can reach for when you need it.
 
 ## Reference
 
+- **[API reference](reference.md)** - generated from the source docstrings:
+  every exported class, function, and event type.
 - **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - a runnable script for every major surface.
 - **[Design decision record](design.md)** - the living spec: the thesis, the
   competitive landscape, and _why_ every primitive is shaped the way it is.
@@ -38,4 +40,3 @@ reference you can reach for when you need it.
 ---
 
 Something unclear or missing? Open an issue - docs gaps are bugs.
-</content>

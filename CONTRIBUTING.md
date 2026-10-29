@@ -77,8 +77,7 @@ The docs site is built from `docs/` with [Zensical](https://zensical.org)
 (Python 3.11+). Preview it locally while you write:
 
 ```bash
-uv sync --all-packages --group docs
-uv run zensical serve
+uv run --group docs zensical serve
 ```
 
 ## Changelog and releases
@@ -106,4 +105,3 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 By contributing, you agree that your contributions are licensed under the
 project's [MIT License](LICENSE).
-</content>

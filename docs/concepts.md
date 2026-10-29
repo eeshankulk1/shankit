@@ -550,4 +550,3 @@ One choke point applies the same rules to every tool source and model:
   flow.
 - **[Design decision record](design.md)** - the reasoning behind every primitive
   above.
-</content>

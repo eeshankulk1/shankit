@@ -149,4 +149,3 @@ Tool and model failures follow one uniform contract:
   reviewable Markdown file.
 - **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - runnable scripts for multi-agent, evals, SSE, and
   the experimental network.
-</content>

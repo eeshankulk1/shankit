@@ -132,4 +132,3 @@ semantics beyond this minimal principled slice are a documented fast-follow.
 - **[Design §7.1](design.md#71-durability-built-in-v1)** and
   **[§9](design.md#9-graph-and-network-escape-hatch-experimental)** - the durability
   and network decisions and their reasoning.
-</content>
