@@ -31,7 +31,7 @@ def query_metrics(service: str) -> str:
 docs_agent = Agent(
     name="docs",
     description="Answers questions from internal documentation.",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="Answer strictly from the docs search results.",
     tools=[search_docs],
 )
@@ -39,14 +39,14 @@ docs_agent = Agent(
 metrics_agent = Agent(
     name="metrics",
     description="Reports service health metrics.",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="Report metrics precisely; no speculation.",
     tools=[query_metrics],
 )
 
 oncall = Agent(
     name="oncall-orchestrator",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="You coordinate specialists to answer on-call questions.",
     tools=[docs_agent.as_tool(), metrics_agent.as_tool()],
 )

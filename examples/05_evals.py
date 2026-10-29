@@ -23,7 +23,7 @@ def keyword_check(text: str) -> str:
 
 classifier = Agent(
     name="spam-classifier",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="Classify messages as spam or ham. Always run keyword_check first.",
     tools=[keyword_check],
     output_type=Verdict,

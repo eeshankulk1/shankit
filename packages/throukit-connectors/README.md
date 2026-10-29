@@ -4,7 +4,7 @@ The **opt-in** connector layer for [throukit](https://github.com/throuai/throuki
 
 A connector *is* a throukit tool source, plus ownership of the connection
 lifecycle (initiate / check-status / adopt-existing) for sources that need
-OAuth. Local-function and MCP users never touch this package — that's the
+OAuth. Local-function and MCP users never touch this package - that's the
 point (design §4): the framework defines the integration **contract**, never
 the **system**. Auth mechanism, credential storage, and vendor choice remain
 yours.
@@ -26,11 +26,11 @@ print(request.redirect_url)
 status = await gmail.check_status(context={"user_id": "u1"}, connection_id=request.connection_id)
 
 # and it's just a tool source
-agent = Agent(name="mail", model="anthropic:claude-sonnet-4-5", tools=[gmail])
+agent = Agent(name="mail", model="anthropic:claude-sonnet-5-5", tools=[gmail])
 ```
 
 The litmus for this layer: you could swap Composio for a completely different
 system without the framework noticing.
 
-Full guide — the contract, the lifecycle, multi-tenant identity scoping, and
+Full guide - the contract, the lifecycle, multi-tenant identity scoping, and
 every `ComposioConnector` option: [docs/connectors.md](../../docs/connectors.md).

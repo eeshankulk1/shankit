@@ -20,11 +20,11 @@ needs it today. throu is the consumer motivating every item below.
 
 ## 1. Iteration-boundary semantics for streamed text
 
-> **Status: implemented — option (a), refined.** `DoneEvent.text` /
+> **Status: implemented - option (a), refined.** `DoneEvent.text` /
 > `RunResult.text` are now every per-pass text joined with `"\n\n"` (the
 > transcript). The *deliverable* stayed the final pass: `output` for
-> `output_type=str` runs — and therefore `as_tool()` text results, graph
-> `agent_step` state, and what the eval scorers score — is the answer, not
+> `output_type=str` runs - and therefore `as_tool()` text results, graph
+> `agent_step` state, and what the eval scorers score - is the answer, not
 > the narration, so interim acknowledgments never leak into drafts, tool
 > results, or eval haystacks. Options (b) and (c) were rejected: with the
 > full transcript on `done`, throu has no remaining need for a boundary
@@ -61,7 +61,7 @@ persisted text become the same string by construction.
 > anything a custom client leaks; `ErrorEvent` gained `code` (open string:
 > `model_error` / `max_iterations` / `output_validation` / `error` /
 > `unexpected`) and `retryable`. The per-request retry policy follow-on
-> stays deferred — the provider SDKs already retry transient failures, and
+> stays deferred - the provider SDKs already retry transient failures, and
 > no throu usage demands run-level mid-loop retries yet.
 
 **Problem.** The "provider-neutral" boundary leaks raw provider exceptions:
@@ -88,21 +88,21 @@ message is what consumers show users. TS regen required.
 ## 3. ComposioConnector: caching + result hooks (delete throu's override)
 
 > **Status: partially implemented.**
-> - `tools_cache_ttl` — done (opt-in, default `None`).
-> - Schema-cache-aware execute — **NOT moot; the earlier claim below was
+> - `tools_cache_ttl` - done (opt-in, default `None`).
+> - Schema-cache-aware execute - **NOT moot; the earlier claim below was
 >   wrong.** throu re-verified during its adoption pass (agentkit PR #31)
 >   against the installed `composio 1.0.0-rc2`: `execute()` →
 >   `_execute_tool()` → `get_raw_composio_tool_by_slug()` still hits the
 >   network on every call, so throu keeps its instance-scoped monkey-patch.
->   The framework decision stands unchanged — not worth coupling to SDK
->   private internals — but do not delete a consumer's patch on the strength
+>   The framework decision stands unchanged - not worth coupling to SDK
+>   private internals - but do not delete a consumer's patch on the strength
 >   of the 0.17.1 observation; re-verify against the SDK actually installed.
-> - `ConnectionStatus.account_id` — done, named vendor-neutrally (the base
+> - `ConnectionStatus.account_id` - done, named vendor-neutrally (the base
 >   lifecycle contract shouldn't speak Composio's vocabulary). throu should
 >   re-check whether this covers its `extra="allow"` smuggling.
-> - `transform_result` — done, as a documented subclass point (an escape
+> - `transform_result` - done, as a documented subclass point (an escape
 >   hatch, not a constructor hook).
-> - Warmup hook — **rejected**: with the TTL cache, warmup is just calling
+> - Warmup hook - **rejected**: with the TTL cache, warmup is just calling
 >   `list_tools()` once at startup; `find_active_account` is throu policy.
 
 **Problem.** throu's `ThrouComposioConnector` overrides essentially the whole
@@ -157,8 +157,8 @@ A streaming consumer summing `UsageEvent`s undercounts vs `DoneEvent.usage`.
 > **Status: deferred (leaning reject), per this item's own caution.**
 > (a) Parameter passthrough mapped to model/instructions selection is
 > throu's lookup/write policy, which design §10 explicitly keeps out of the
-> framework. (b) An `on_event` hook is nearly free to add — `run()` already
-> takes `on_event=` — but with concurrent sub-agent calls throu would need
+> framework. (b) An `on_event` hook is nearly free to add - `run()` already
+> takes `on_event=` - but with concurrent sub-agent calls throu would need
 > to correlate forwarded events to a parent step, and the tool seam doesn't
 > expose the tool_use id; a naive hook wouldn't actually let throu delete
 > `ConsultToolSource`. Revisit only with throu code in hand showing the
@@ -182,19 +182,19 @@ it if the passthrough design stays dead simple. Fine to reject.
   `stop_reason == "max_tokens"`; consumers still can't see it. A
   `truncated: bool` on `DoneEvent` is one field + TS regen - held back only
   to keep PR #3 schema-neutral.
-  **Status: done** — sticky (true if *any* pass truncated, since a cut-off
+  **Status: done** - sticky (true if *any* pass truncated, since a cut-off
   intermediate tool call corrupts a run too), mirrored onto `RunResult`.
 - `models/registry.py` `_CLIENT_CACHE` clients are never `aclose()`d - fine
   for servers, leaks warnings in short-lived scripts. A `shutdown()` helper
   or docs note.
-  **Status: done** — `throukit.models.shutdown()`.
+  **Status: done** - `throukit.models.shutdown()`.
 - `AnthropicModel.parse_message` silently drops thinking / server-tool
   blocks; worth stating in the ModelClient boundary contract docstring.
-  **Status: done** — stated in the `models.base` contract docstring.
+  **Status: done** - stated in the `models.base` contract docstring.
 - Token estimation: throu keeps a `_CHARS_PER_TOKEN = 4` heuristic in two
   places (orchestrator, compaction). If the framework ever grows a token
   estimator, both adopt it; until then this is throu's to unify.
-  **Status: still throu's** — correctly rejected under the founding rule.
+  **Status: still throu's** - correctly rejected under the founding rule.
 - Test gaps in the core suite: non-object output schemas beyond the PR #3
   cases, provider-exception behavior in `run()` (blocked on item 2), stream
   `aclose()` (vs task-cancel) semantics.

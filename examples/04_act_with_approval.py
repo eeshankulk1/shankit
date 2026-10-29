@@ -24,14 +24,14 @@ def search_thread(topic: str) -> str:
 
 researcher = Agent(
     name="researcher",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="Gather the facts needed to reply. Report findings tersely.",
     tools=[search_thread],
 )
 
 writer = Agent(
     name="writer",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="Draft a short, professional email. Output only the draft.",
 )
 

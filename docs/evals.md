@@ -2,7 +2,7 @@
 
 How to measure whether an agent does its job: datasets of cases, scorers over
 the results, and trajectory assertions over *how* the agent got there. All of
-it runs on `RunResult` — the same object every structured run returns — so
+it runs on `RunResult` - the same object every structured run returns - so
 anything you can run, you can evaluate.
 
 ```python
@@ -48,7 +48,7 @@ subset = dataset.sample(20, seed=7)              # deterministic subsample
 `evaluate(target, dataset, scorers=...)` runs every case against the target
 (concurrently, `max_concurrency=4` by default) and scores the results.
 
-- `target` is an `Agent` — run with each case's `input` and `context` — or
+- `target` is an `Agent` - run with each case's `input` and `context` - or
   any async callable `(case) -> RunResult`, which is the escape hatch for
   targets that need setup per case.
 - An agent target runs structured against `output_type=` (falling back to
@@ -75,7 +75,7 @@ Shipped scorers:
 | `llm_judge(rubric, model=...)` | a model-graded 0..1 score against the rubric clears `threshold` (default 0.7) |
 
 `output_contains` and `llm_judge` judge the **deliverable** (`result.output`,
-falling back to `result.text`), not the transcript — an agent that merely
+falling back to `result.text`), not the transcript - an agent that merely
 *mentions* the expected string in interim narration does not pass.
 
 Writing your own is the normal path:
@@ -101,7 +101,7 @@ tool calls in `result.trajectory`:
 | `tool_order([a, b, ...])` | the names appear in order (as a subsequence) |
 | `no_tool_errors` | no tool call returned an error |
 
-These are ordinary scorers — mix them freely with output scorers in one
+These are ordinary scorers - mix them freely with output scorers in one
 `evaluate` call.
 
 ## Evaluating without the network
@@ -114,9 +114,9 @@ and assert on trajectories and outputs.
 
 ## See also
 
-- [`examples/05_evals.py`](../examples/05_evals.py) — runnable end-to-end example.
-- [Core concepts](concepts.md) — `RunResult`, trajectories, and the error contract.
-- [Design §7.2](design.md) — why evals ship in the core rather than as an add-on.
+- [`examples/05_evals.py`](../examples/05_evals.py) - runnable end-to-end example.
+- [Core concepts](concepts.md) - `RunResult`, trajectories, and the error contract.
+- [Design §7.2](design.md) - why evals ship in the core rather than as an add-on.
 
 ---
 

@@ -16,8 +16,8 @@ with a connection lifecycle bolted on.
 
 ## The contract
 
-A `Connector` is a `throukit.ToolSource` — the same two-method seam the agent
-loop already speaks (`list_tools` / `execute`) — **plus** three lifecycle
+A `Connector` is a `throukit.ToolSource` - the same two-method seam the agent
+loop already speaks (`list_tools` / `execute`) - **plus** three lifecycle
 methods consumed only by your connection UI:
 
 | Method | Purpose |
@@ -27,8 +27,8 @@ methods consumed only by your connection UI:
 | `adopt(context, connection_id=...)` | Adopt a connection created outside this app (vendor dashboard, previous system) |
 
 `ConnectionStatus.status` is one of `pending`, `active`, `failed`,
-`expired`. Statuses a connector doesn't recognize report as `failed` —
-terminal — so your connect UI never polls a dead connection forever.
+`expired`. Statuses a connector doesn't recognize report as `failed` -
+terminal - so your connect UI never polls a dead connection forever.
 
 The split exists because the runtime seam (what the loop touches) changes
 at a different rate than the vendor-shaped lifecycle (what your connect
@@ -48,7 +48,7 @@ gmail = ComposioConnector(
     toolkit="GMAIL",
     user_id=lambda ctx: ctx["user_id"],   # you decide what identity means
 )
-agent = Agent(name="mail", model="anthropic:claude-sonnet-4-5", tools=[gmail])
+agent = Agent(name="mail", model="anthropic:claude-sonnet-5-5", tools=[gmail])
 
 await agent.run("Summarize today's inbox.", context={"user_id": "u42"}, output_type=str)
 ```
@@ -58,7 +58,7 @@ used).
 
 When an extractor **is** configured, the lifecycle methods are scoped to
 it: `check_status`/`adopt` verify the connection actually belongs to the
-user the context resolves to, and raise `PermissionError` otherwise — a
+user the context resolves to, and raise `PermissionError` otherwise - a
 leaked or guessed connection id can't be linked cross-tenant.
 
 ## The connection flow
@@ -82,10 +82,10 @@ status = await gmail.adopt(ctx, connection_id="conn_existing")
 | Option | What it does |
 |---|---|
 | `toolkit` | The Composio toolkit slug (e.g. `"GMAIL"`) |
-| `tools=[...]` | Allowlist of tool slugs to expose — **recommended**, toolkits can run to hundreds of tools |
+| `tools=[...]` | Allowlist of tool slugs to expose - **recommended**, toolkits can run to hundreds of tools |
 | `tools_cache_ttl=600` | Cache the tool catalog for N seconds. The loop lists tools every run; an uncached catalog costs a vendor round-trip per turn. Identity only matters at `execute`, so one cache per connector is safe |
 | `client=` / `api_key=` | Bring an existing `composio.Composio` client, or construct one |
-| `skip_version_check=True` | Follow the latest toolkit version when the client pins none. Left off, an unpinned client surfaces an actionable `ToolError` telling you to pin or opt in — an explicit choice, because a breaking toolkit release can change behavior without a code change |
+| `skip_version_check=True` | Follow the latest toolkit version when the client pins none. Left off, an unpinned client surfaces an actionable `ToolError` telling you to pin or opt in - an explicit choice, because a breaking toolkit release can change behavior without a code change |
 
 ### Slimming vendor responses
 
@@ -105,8 +105,8 @@ class SlimGmail(ComposioConnector):
 Connectors follow the framework's uniform tool-error contract
 ([concepts](concepts.md)): a vendor-reported failure raises `ToolError`
 (model-visible, recorded on the trajectory); anything else is sanitized by
-the loop. Known, actionable vendor failures — like Composio's
-version-pinning requirement — are translated into `ToolError`s that state
+the loop. Known, actionable vendor failures - like Composio's
+version-pinning requirement - are translated into `ToolError`s that state
 the remedy rather than an opaque "failed unexpectedly".
 
 ## Writing your own connector
@@ -122,8 +122,8 @@ test proving a connector is a plain `ToolSource`.
 
 ## See also
 
-- [Core concepts](concepts.md) — the tool seam and the opaque per-run context.
-- [Design §4](design.md) — why the connector layer is a separate package.
+- [Core concepts](concepts.md) - the tool seam and the opaque per-run context.
+- [Design §4](design.md) - why the connector layer is a separate package.
 
 ---
 

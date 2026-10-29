@@ -1,8 +1,8 @@
 # throukit
 
-An open-source AI agent framework that takes the **integration seam** — the
+An open-source AI agent framework that takes the **integration seam** - the
 boundary between an agent and the real, authenticated external tools it acts
-on — as seriously as the agent loop itself, **without imposing how you
+on - as seriously as the agent loop itself, **without imposing how you
 authenticate**.
 
 ```python
@@ -20,7 +20,7 @@ class Summary(BaseModel):
 
 agent = Agent(
     name="orders",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="You help users with their orders.",
     tools=[search_orders],
 )

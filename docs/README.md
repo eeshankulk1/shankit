@@ -1,6 +1,6 @@
 # throukit documentation
 
-The complete guide to throukit — an AI agent framework that takes the
+The complete guide to throukit - an AI agent framework that takes the
 integration seam as seriously as the agent loop itself, without imposing how
 you authenticate.
 
@@ -21,10 +21,10 @@ reference you can reach for when you need it.
 
 ## Reference
 
-- **[Examples](../examples)** — a runnable script for every major surface.
-- **[Design decision record](design.md)** — the living spec: the thesis, the
+- **[Examples](../examples)** - a runnable script for every major surface.
+- **[Design decision record](design.md)** - the living spec: the thesis, the
   competitive landscape, and _why_ every primitive is shaped the way it is.
-- **[Deferred improvements](deferred-improvements.md)** — design-level changes
+- **[Deferred improvements](deferred-improvements.md)** - design-level changes
   considered and consciously deferred, with the reasoning.
 
 ## Packages
@@ -37,5 +37,5 @@ reference you can reach for when you need it.
 
 ---
 
-Something unclear or missing? Open an issue — docs gaps are bugs.
+Something unclear or missing? Open an issue - docs gaps are bugs.
 </content>

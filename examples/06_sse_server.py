@@ -19,7 +19,7 @@ def lookup_status(order_id: str) -> str:
 
 agent = Agent(
     name="support",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="You are a friendly support agent.",
     tools=[lookup_status],
 )

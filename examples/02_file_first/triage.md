@@ -1,7 +1,7 @@
 ---
 name: email-triage
 description: Triages the inbox and proposes what to do next.
-model: anthropic:claude-sonnet-4-5
+model: anthropic:claude-sonnet-5-5
 tools:
   - tools_email:search_email
   - tools_email:read_email

@@ -44,7 +44,7 @@ def cancel_order(ctx, order_id: str) -> str:
 
 agent = Agent(
     name="orders-assistant",
-    model="anthropic:claude-sonnet-4-5",
+    model="anthropic:claude-sonnet-5-5",
     instructions="You help users manage their orders. Be concise.",
     tools=[list_orders, cancel_order],
 )
