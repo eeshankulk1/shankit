@@ -1,0 +1,1 @@
+{"date": "2026-10-29", "project": "shankit", "summary": "Split the agent loop into private context, run-state and sub-agent modules, and gave as_tool, delegates and clones one shared sub-agent runner. Pure refactor: no API or event-order change.", "pr": 0, "why": "The 400-line loop and three copies of the sub-agent relay were the hardest code to change safely."}
