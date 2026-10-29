@@ -681,9 +681,10 @@ where the original text had a gap (flagged ⚠):
       response counts as a success, one closed before it as cancelled, one
       that ends without a response as an error with `error=None`.
     - `shankit.testing.Cassette` / `CassetteModel` / `CassetteMiss`. Keys
-      drop UUIDs, provider tool-call ids, signatures, cache marks and
-      `request.agent` by default; app-specific volatility (a clock line, its
-      own ids) is the app's `scrub` list, run after the defaults so its
+      mask UUIDs and provider tool-call ids and leave out reasoning
+      signatures, cache marks and `request.agent` by default;
+      app-specific volatility (a clock line, its own ids) is the app's
+      `scrub` list, run after the defaults so its
       patterns never see half a UUID. `rekey()` replaces a paid re-record
       after a scrub change. No mode switch or environment variable: the app
       picks record or replay.

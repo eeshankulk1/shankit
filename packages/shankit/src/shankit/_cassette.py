@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 import re
-import threading
+import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal, Optional, Union
@@ -70,7 +70,6 @@ class Cassette:
         self.dir = Path(directory)
         # The defaults run first, so a pattern of yours never sees half a UUID.
         self._scrub = [*_DEFAULT_SCRUB, *((re.compile(p), r) for p, r in scrub)]
-        self._lock = threading.Lock()
 
     def normalize(self, provider: str, request: dict[str, Any]) -> dict[str, Any]:
         """The part of ``request`` that decides its response."""
@@ -93,9 +92,7 @@ class Cassette:
 
     def save(self, provider: str, request: dict[str, Any], response: dict[str, Any]) -> None:
         norm = self.normalize(provider, request)
-        with self._lock:
-            self.dir.mkdir(parents=True, exist_ok=True)
-            _write(self.dir / f"{_key(norm)}.json", {"request": norm, "response": response})
+        _write(self.dir / f"{_key(norm)}.json", {"request": norm, "response": response})
 
     def rekey(self) -> int:
         """Normalize every recording again under the current ``scrub`` and
@@ -139,13 +136,7 @@ class Cassette:
             else ["(no recordings for this provider yet)"]
         )
         report = self.dir / "_misses" / f"{key}.json"
-        with self._lock:
-            report.parent.mkdir(parents=True, exist_ok=True)
-            report.write_text(
-                json.dumps(
-                    {"request": norm, "closest": best[1] if best else None, "diff": diff}, indent=1
-                )
-            )
+        _write(report, {"request": norm, "closest": best[1] if best else None, "diff": diff})
         logger.warning(
             "cassette miss %s; closest %s:\n%s",
             key,
@@ -220,7 +211,16 @@ def _dumps(value: Any) -> str:
 
 
 def _write(path: Path, entry: dict[str, Any]) -> None:
-    path.write_text(_dumps(entry) + "\n")
+    # Written whole under a temporary name, then renamed, so a reader (a
+    # parallel test run) never sees half a recording.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(_dumps(entry) + "\n")
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _key(normalized: dict[str, Any]) -> str:
