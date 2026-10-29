@@ -82,11 +82,10 @@ def _request() -> ModelRequest:
     )
 
 
-def test_anthropic_cache_control_flag():
-    assert anthropic_kwargs(_request(), cache_system_and_tools=True)["cache_control"] == {
-        "type": "ephemeral"
-    }
-    assert "cache_control" not in anthropic_kwargs(_request())
+def test_anthropic_prompt_cache_flag():
+    kwargs = anthropic_kwargs(_request(), prompt_cache="5m")
+    assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in str(anthropic_kwargs(_request()))
 
 
 def test_openai_uses_max_completion_tokens():

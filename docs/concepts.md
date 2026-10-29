@@ -443,6 +443,41 @@ model="openai:gpt-5.5"
 - Passing `model_client=` to `Agent` bypasses the registry entirely - bring your
   own client, and `model` becomes a bare model id.
 
+### Prompt caching (Anthropic)
+
+`AnthropicModel` places cache breakpoints itself, so each request reads back
+as much of the last one as stayed the same: the system prompt's last part, the
+newest two user prompts, and the request's last block (read by the next pass
+of the same turn). The API only looks 20 blocks back from a breakpoint, so the
+prompt marks are what let a turn read the conversation after a long tool turn
+before it. With a slot left (a first message), the marks also cover what is
+the same for every conversation: a system prompt's first part, else the tools.
+
+Two things are yours to set:
+
+- **What changes between requests.** Mark a prompt block `volatile=True`
+  (`TextBlock` or `ImageBlock`) when the next request won't send it in the same
+  place - a note for this turn alone, a photo you replay for a few turns. No
+  breakpoint lands on it or after it in its message. Keep a moving system
+  prompt part (a clock) out of the system prompt: put it in a volatile block.
+- **How long entries live.** `AnthropicModel(prompt_cache="1h")` keeps them an
+  hour, for a chat whose users come back after five minutes; writes cost twice
+  the input price instead of 1.25 times, and `Usage.cache_write_1h_tokens`
+  counts them (a part of `cache_write_tokens`). A last-block mark past the
+  newest prompt stays at five minutes, since only the same turn reads it. `prompt_cache=None` turns
+  caching off.
+
+```python
+register_provider("anthropic-chat", lambda: AnthropicModel(prompt_cache="1h"))
+await agent.run([
+    TextBlock(text=question),
+    TextBlock(text=f"Now: {clock()}", volatile=True),
+])
+```
+
+`AnthropicModel(default_reasoning=Reasoning(enabled=False))` sends reasoning
+off when a request doesn't ask for any; Claude thinks adaptively otherwise.
+
 ### Testing with a scripted model
 
 `throukit.testing.ScriptedModel` is a provider-neutral fake `ModelClient` for

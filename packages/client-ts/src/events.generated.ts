@@ -49,6 +49,7 @@ export interface Usage {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  cache_write_1h_tokens: number;
   requests: number;
   by_model: Record<string, Usage>;
 }

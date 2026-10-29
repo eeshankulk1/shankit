@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from ..exceptions import ModelError, ThroukitError
 from ..messages import (
@@ -26,28 +26,50 @@ from .base import (
     ModelResponseComplete,
     ModelStreamEvent,
     ModelTextDelta,
+    Reasoning,
     map_sdk_error,
     wrap_sdk_errors,
 )
 
-__all__ = ["AnthropicModel", "ModelRules", "model_rules"]
+__all__ = ["AnthropicModel", "CacheTTL", "ModelRules", "model_rules"]
 
 _PROVIDER = "anthropic"
 
 _STOP_REASONS = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
 
+#: How long a prompt-cache entry lives: Anthropic's ``ephemeral`` TTLs. An
+#: hour costs twice the input price to write; five minutes, 1.25 times.
+CacheTTL = Literal["5m", "1h"]
+
 
 class AnthropicModel(ModelClient):
     """Anthropic client.
 
-    ``cache_system_and_tools`` (default on) sends top-level
-    ``cache_control: {"type": "ephemeral"}``, which the API applies to the
-    last cacheable block of the request — so the system prompt, tool
-    definitions, *and the growing message prefix* are prompt-cached across
-    the iterations of an agent loop (the cache marker advances each
-    iteration, writing the new suffix). Cache-read tokens are reported on
-    ``Usage.cache_read_tokens``; cache-written tokens (billed at a premium
-    and excluded from ``input_tokens`` by the API) on
+    ``prompt_cache`` (default ``"5m"``; ``None`` turns caching off) places
+    cache breakpoints so a request reads back as much of the last one as
+    stayed the same. The API reads an entry only within 20 blocks of one of
+    the request's own breakpoints, so one mark at the end loses everything
+    after a long tool turn. There are four, the API's limit:
+
+    - the system prompt's last part (tools, which come first, ride along);
+    - the newest two prompts (user messages that aren't only tool results),
+      each on its last block before any ``volatile`` one: the next turn
+      reads up to where this one started, however many tool calls it made;
+    - the request's last block, unless it is ``volatile``: the next pass of
+      the agent loop reads this whole one. It always lives five minutes,
+      since only the same turn reads it;
+    - with a slot left (a first message: a new chat, a sub-agent, a
+      one-shot call), what stays the same across conversations: a system
+      prompt's first part when there are several, else the tool list.
+
+    ``"1h"`` keeps all but the last for an hour, for a chat whose user comes
+    back after five minutes; writes cost more (``Usage.cache_write_1h_tokens``
+    says how many). A ``volatile`` block (`throukit.messages.TextBlock`,
+    `throukit.messages.ImageBlock`) is one the next request won't send
+    in the same place - this turn's notes, a photo replayed for a few turns -
+    so no breakpoint lands on it or after it in its message. Cache-read
+    tokens are reported on ``Usage.cache_read_tokens``; cache-written tokens
+    (billed at a premium and excluded from ``input_tokens`` by the API) on
     ``Usage.cache_write_tokens``.
 
     Reasoning: ``ModelRequest.reasoning`` maps to ``thinking`` (adaptive,
@@ -80,6 +102,11 @@ class AnthropicModel(ModelClient):
     a `ProviderBlock` from this provider (e.g. ``browser_state``) is
     sent verbatim, one from any other provider as its text fallback.
 
+    ``default_reasoning`` stands in for a request's ``reasoning`` when it
+    has none: Claude thinks adaptively when the parameter is left out, so
+    ``Reasoning(enabled=False)`` makes cheap passes cheap unless an agent
+    asks for more.
+
     ``extra_request_kwargs`` is an escape hatch merged (last) into every
     ``messages.create``/``messages.stream`` call — for provider parameters
     the neutral `ModelRequest` doesn't model. Keys collide with the
@@ -92,13 +119,15 @@ class AnthropicModel(ModelClient):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         client: Any = None,
-        cache_system_and_tools: bool = True,
+        prompt_cache: Optional[CacheTTL] = "5m",
+        default_reasoning: Optional[Reasoning] = None,
         extra_request_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._client = client
-        self._cache_system_and_tools = cache_system_and_tools
+        self._prompt_cache: Optional[CacheTTL] = prompt_cache
+        self._default_reasoning = default_reasoning
         self._extra_request_kwargs = extra_request_kwargs
 
     def _get_client(self) -> Any:
@@ -114,7 +143,9 @@ class AnthropicModel(ModelClient):
         return self._client
 
     def _build_kwargs(self, request: ModelRequest) -> dict[str, Any]:
-        kwargs = build_kwargs(request, cache_system_and_tools=self._cache_system_and_tools)
+        if request.reasoning is None and self._default_reasoning is not None:
+            request = request.model_copy(update={"reasoning": self._default_reasoning})
+        kwargs = build_kwargs(request, prompt_cache=self._prompt_cache)
         if self._extra_request_kwargs:
             extra = dict(self._extra_request_kwargs)
             if "extra_body" in kwargs and "extra_body" in extra:
@@ -156,17 +187,22 @@ def _map_error(exc: Exception) -> Optional[ModelError]:
     )
 
 
-def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False) -> dict[str, Any]:
+def build_kwargs(
+    request: ModelRequest, *, prompt_cache: Optional[CacheTTL] = None
+) -> dict[str, Any]:
     """Convert a neutral request into ``anthropic.messages.create`` kwargs."""
+    params = [p for m in request.messages if (p := _message_param(m)) is not None]
     kwargs: dict[str, Any] = {
         "model": request.model,
         "max_tokens": request.max_tokens,
-        "messages": [p for m in request.messages if (p := _message_param(m)) is not None],
+        "messages": [param for param, _ in params],
     }
-    if cache_system_and_tools:
-        kwargs["cache_control"] = {"type": "ephemeral"}
     if isinstance(request.system, list):
-        kwargs["system"] = [{"type": "text", "text": part} for part in request.system if part]
+        # A blank part is dropped, as a blank message block is: the API
+        # refuses it, and the last-part breakpoint would land on it.
+        kwargs["system"] = [
+            {"type": "text", "text": part} for part in request.system if part.strip()
+        ]
     elif request.system is not None:
         kwargs["system"] = request.system
     rules = model_rules(request.model)
@@ -199,7 +235,51 @@ def build_kwargs(request: ModelRequest, *, cache_system_and_tools: bool = False)
             kwargs["tool_choice"] = {"type": "any"}
         elif choice == "none":
             kwargs["tool_choice"] = {"type": "none"}
+    if prompt_cache is not None:
+        _mark_cache(kwargs, [stable for _, stable in params], prompt_cache)
     return kwargs
+
+
+def _mark_cache(kwargs: dict[str, Any], stable: list[int], ttl: CacheTTL) -> None:
+    """The cache breakpoints `AnthropicModel` describes. ``stable``
+    is, per message, how many of its blocks come before its first volatile
+    one."""
+    mark = {"type": "ephemeral"} if ttl == "5m" else {"type": "ephemeral", "ttl": ttl}
+    marked = 0
+    system: Any = kwargs.get("system")
+    if isinstance(system, str) and system:
+        system = kwargs["system"] = [{"type": "text", "text": system}]
+    if system:
+        system[-1]["cache_control"] = dict(mark)
+        marked += 1
+    messages = kwargs["messages"]
+    prompts = [i for i, m in enumerate(messages) if _is_prompt(m)]
+    for i in prompts[-2:]:
+        if stable[i]:
+            messages[i]["content"][stable[i] - 1]["cache_control"] = dict(mark)
+            marked += 1
+    if marked < 3:
+        tools = kwargs.get("tools")
+        if system and len(system) > 1:
+            system[0]["cache_control"] = dict(mark)
+        elif tools and "input_schema" in tools[-1]:
+            tools[-1] = {**tools[-1], "cache_control": dict(mark)}
+    if messages and stable[-1] == len(messages[-1]["content"]):
+        last = messages[-1]["content"][-1]
+        if "cache_control" not in last and last["type"] not in _UNMARKABLE:
+            last["cache_control"] = {"type": "ephemeral"}
+
+
+# Blocks the API takes no cache_control on.
+_UNMARKABLE = {"thinking", "redacted_thinking"}
+
+
+def _is_prompt(message: dict[str, Any]) -> bool:
+    """A user turn, as opposed to one that only carries tool results (a
+    step inside a turn)."""
+    return message["role"] == "user" and any(
+        block["type"] != "tool_result" for block in message["content"]
+    )
 
 
 @dataclass(frozen=True)
@@ -289,15 +369,19 @@ def _tool_params(tools: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _message_param(message: Message) -> Optional[dict[str, Any]]:
-    """One neutral message as an Anthropic message param. Reasoning from
-    this provider is re-sent verbatim; reasoning from any other provider is
+def _message_param(message: Message) -> Optional[tuple[dict[str, Any], int]]:
+    """One neutral message as an Anthropic message param, and how many of
+    its blocks come before the first volatile one. Reasoning from this
+    provider is re-sent verbatim; reasoning from any other provider is
     dropped. So is a text block with only whitespace in it: the API refuses
     the whole request over one, and a stored history goes out again on
     every later turn. A message left with no content is omitted
     (consecutive same-role messages are merged by the API)."""
     content: list[dict[str, Any]] = []
+    stable: Optional[int] = None
     for block in message.content:
+        if stable is None and getattr(block, "volatile", False):
+            stable = len(content)
         if isinstance(block, ReasoningBlock):
             if block.provider == _PROVIDER and block.data:
                 content.append(dict(block.data))
@@ -316,13 +400,14 @@ def _message_param(message: Message) -> Optional[dict[str, Any]]:
             content.append(_tool_result_param(block))
         elif isinstance(block, ImageBlock):
             content.append(_image_param(block))
-        elif isinstance(block, TextBlock) and not block.text.strip():
-            continue
+        elif isinstance(block, TextBlock):
+            if block.text.strip():
+                content.append({"type": "text", "text": block.text})
         else:
             content.append(block.model_dump())
     if not content:
         return None
-    return {"role": message.role, "content": content}
+    return {"role": message.role, "content": content}, len(content) if stable is None else stable
 
 
 def _image_param(block: ImageBlock) -> dict[str, Any]:
@@ -399,11 +484,13 @@ def parse_message(message: Any) -> ModelResponse:
             )
         # Other block types (server tool use, ...) are not part of the
         # boundary shape and are dropped here.
+    creation = getattr(message.usage, "cache_creation", None)
     usage = Usage(
         input_tokens=getattr(message.usage, "input_tokens", 0) or 0,
         output_tokens=getattr(message.usage, "output_tokens", 0) or 0,
         cache_read_tokens=getattr(message.usage, "cache_read_input_tokens", 0) or 0,
         cache_write_tokens=getattr(message.usage, "cache_creation_input_tokens", 0) or 0,
+        cache_write_1h_tokens=getattr(creation, "ephemeral_1h_input_tokens", 0) or 0,
         requests=1,
     )
     stop = _STOP_REASONS.get(getattr(message, "stop_reason", None) or "", "other")

@@ -647,3 +647,27 @@ where the original text had a gap (flagged ⚠):
       the whole request over one, and a stored history re-sends it every
       turn) and sends `temperature` in the request body, since SDK 1.0
       removed the keyword.
+19. **Prompt-cache layout in the Anthropic client.** Throu subclassed
+    `AnthropicModel` and rewrote its private request builder to place cache
+    breakpoints; the layout now ships as the default, since any agent with
+    long tool turns hits the same miss. The top-level automatic mark caches
+    the whole request but is read back only within 20 blocks, so after a
+    long tool turn the next turn read nothing and rewrote tools, system and
+    history. Breakpoints now go on the system prompt's last part, the newest
+    two prompts, the request's last block, and (a slot left) the shared
+    prefix: four, the API's limit. Smallest surface Throu needs, one knob
+    each:
+    - `volatile=True` on a `TextBlock` / `ImageBlock` replaces Throu's string
+      search for its per-turn note: no breakpoint on or after it in its
+      message, and the last-block mark is skipped when it ends the request
+      (which also covers a one-shot call whose prompt is new every time).
+      Excluded from serialization: it describes one request, and leaving it
+      out keeps stored messages and request fingerprints unchanged.
+    - `prompt_cache: "5m" | "1h" | None` replaces `cache_system_and_tools`.
+      `"1h"` applies to every mark but the last-block one: that entry is read
+      only by the same turn, and the API wants 1h marks before 5m ones.
+    - `Usage.cache_write_1h_tokens` keeps the API's split of cache writes
+      (1h writes cost 2x input, 5m writes 1.25x), as part of
+      `cache_write_tokens` so existing pricing still adds up.
+    - `default_reasoning` stands in when a request has none (Throu turns
+      reasoning off for its cheap passes).

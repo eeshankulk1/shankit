@@ -18,8 +18,34 @@ anything under `throukit.experimental` may change in any release.
   the old ones. `SqliteCheckpointer` now uses a table named
   `throukit_checkpoints`, so checkpoints saved under the old name are not read.
   The old names have no aliases.
+- `AnthropicModel(prompt_cache="5m" | "1h" | None)` replaces
+  `cache_system_and_tools`.
 
 ### Added
+
+- `AnthropicModel` places its own prompt-cache breakpoints (the system
+  prompt, the newest prompts, the last block and the shared prefix);
+  `volatile=True` on a `TextBlock` or `ImageBlock` keeps per-turn content
+  out of the cached prefix, `Usage.cache_write_1h_tokens` counts hour-long
+  cache writes, and `default_reasoning` fills in when a request sets none.
+- Per-model usage: `Usage.by_model`, `per_model()` and `for_model()`, so a run
+  that mixes models can be priced. `ModelRequest.agent` names the agent that
+  made each call.
+- `get_provider()` reads a registered provider, and `register_provider()`
+  returns the factory it replaced, so a provider can be wrapped.
+- `throukit.testing.use_model()` and `tool_call()` for tests.
+- `RunControl.send(on_delivered=)` and `RunControl.undelivered()`.
+- `WorkspaceTools.bash_def`, `resolve_env` and `command_timeout()` are public.
+
+### Fixed
+
+- `stream()`'s tracing span is current only while the run works, never across
+  a `yield`, so closing an abandoned stream from another task no longer breaks
+  OpenTelemetry context.
+- Whitespace-only text blocks are dropped before an Anthropic request, which
+  the API rejects.
+
+### Project
 
 - A release workflow that publishes to PyPI and npm from a version tag, and a
   documentation site built from `docs/`.
