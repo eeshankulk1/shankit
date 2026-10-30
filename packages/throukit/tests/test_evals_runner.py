@@ -284,6 +284,45 @@ def test_the_meter_counts_vendors_and_flags_a_model_it_has_no_price_for():
         Meter(Decimal("inf"), price=price)
 
 
+async def test_a_pricer_that_fails_stops_the_paid_calls_after_it():
+    # The observer logs a failing pricer and carries on, so the call it could
+    # not price would go uncounted: the cap refuses everything after it.
+    def broken(model: str, usage: Usage) -> Price:
+        raise KeyError(model)
+
+    turns = [Turn("hi", usage=spend(0.01)), Turn("hi", usage=spend(0.01))]
+    with use_model(ScriptedModel(turns)) as model:
+        meter = Meter(Decimal("1"), price=broken)
+        with metered(meter):
+            agent = Agent(name="a", model=MODEL)
+            await agent.run("hello", output_type=str)
+            with pytest.raises(BudgetExceeded, match="pricer failed"):
+                await agent.run("again", output_type=str)
+    assert len(model.requests) == 1
+    assert meter.tripped == MODEL
+
+
+@pytest.mark.parametrize("bad", ["raises", "not a number"])
+def test_a_pricer_failure_on_the_last_call_still_stops_the_run(bad):
+    def broken(model: str, usage: Usage) -> Price:
+        if bad == "raises":
+            raise KeyError(model)
+        return Price("n/a")
+
+    with use_model(ScriptedModel([Turn("yes", usage=spend(0.01))])):
+        suite = Toy()
+        suite.n = 1
+        report = run_suite(
+            suite,
+            EvalRun(suite="toy", meter=Meter(Decimal("1"), price=broken)),
+            select_cases(suite, {}, None),
+        )
+
+    assert "the pricer failed on a toy-model call" in report.stopped
+    assert "counted of the $1.00 budget" in report.stopped
+    assert report.exit_code == EXIT_STOPPED_EARLY
+
+
 async def test_metered_covers_any_registered_provider_and_puts_it_back():
     with use_model(ScriptedModel([Turn("hi", usage=spend(0.01))]), providers=("custom",)):
         inner = get_provider("custom")
@@ -457,6 +496,45 @@ def test_a_sync_case_cut_short_by_ctrl_c_ends_inside_the_session():
         report = go(Slow(), toy_run())
     assert report.stopped == "interrupted"
     assert events == ["case ended", "session closed"]
+
+
+@pytest.mark.parametrize(
+    "meter",
+    [Meter(Decimal("1"), price=price), Meter()],
+    ids=["budget", "no budget"],
+)
+def test_ctrl_c_refuses_the_paid_calls_of_a_sync_case_still_running(meter):
+    # A thread can't be cancelled: the meter is what ends the case.
+    calls: list[int] = []
+    outcome: list[str] = []
+
+    class Spending(Suite):
+        name = "spending"
+
+        def cases(self, options):
+            return [Case(id="spending")]
+
+        def run_case(self, case, run):
+            try:
+                for call in range(500):
+                    run.meter.guard("paid")
+                    calls.append(call)
+                    threading.Event().wait(0.01)
+            except BudgetExceeded as e:
+                outcome.append(str(e))
+            return {"ok": True}
+
+    original = asyncio.wrap_future
+
+    def interrupted(future):
+        os.kill(os.getpid(), signal.SIGINT)
+        return original(future)
+
+    with mock.patch("asyncio.wrap_future", interrupted):
+        report = go(Spending(), EvalRun(suite="spending", meter=meter))
+    assert report.stopped == "interrupted"
+    assert len(calls) < 500
+    assert outcome == ["eval run stopped (interrupted): refused paid"]
 
 
 def test_the_hooks_run_with_no_event_loop():

@@ -244,13 +244,20 @@ async def _run_cases(
             results[index] = result
             if on_result is not None:
                 on_result(len(results), len(work), result)
-            over = budget is not None and meter.spent_usd > budget
+            unknown = meter.pricer_failed_on
+            over = budget is not None and (
+                meter.spent_usd > budget or meter.tripped is not None or unknown is not None
+            )
             if (result.status == "budget" or over) and report.stopped is None:
                 refused = f"; refused {meter.tripped}" if meter.tripped else ""
-                report.stopped = (
-                    f"hard stop after {case.id} (trial {trial}): actual spend "
-                    f"${meter.spent_usd:.4f} reached the ${budget:.2f} budget{refused}"
-                )
+                if unknown is not None:
+                    why = (
+                        f"the pricer failed on a {unknown} call, so spend is unknown "
+                        f"(${meter.spent_usd:.4f} counted of the ${budget:.2f} budget)"
+                    )
+                else:
+                    why = f"actual spend ${meter.spent_usd:.4f} reached the ${budget:.2f} budget"
+                report.stopped = f"hard stop after {case.id} (trial {trial}): {why}{refused}"
         finally:
             held -= estimate
             slots.release()
@@ -278,6 +285,7 @@ async def _run_cases(
             await asyncio.wait(set(in_flight))
     except asyncio.CancelledError:
         report.stopped = "interrupted"
+        meter.stop("interrupted")
         for task in in_flight:
             task.cancel()
         await asyncio.gather(*in_flight, return_exceptions=True)
@@ -366,6 +374,7 @@ def run_suite(
             asyncio.run(_run_cases(suite, run, work, pool, report, on_result))
         except KeyboardInterrupt:
             report.stopped = "interrupted"
+            run.meter.stop("interrupted")
         _summarize(suite, report)
     return _finish(suite, run, report, started)
 

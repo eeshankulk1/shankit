@@ -391,8 +391,8 @@ of itself.**
 
 ## 13. Open threads
 
-1. **Evaluation harness detail** - dataset/scorer/trajectory-assertion surface.
-   Lighter; can be settled during implementation.
+1. **Evaluation harness detail** - settled: suites, bars, budgets, scorers and
+   trajectory checks (§7.2, §14 entry 22).
 2. **TypeScript consumer SDK detail** - event-type generation, transport, the
    published API. Can come after the Python core stabilizes.
 3. **Name** - settled: Throukit (§14 entry 9).

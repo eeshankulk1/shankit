@@ -2,8 +2,8 @@
 
 How to measure whether an agent does its job, and keep measuring it without a
 surprise bill. An eval is a suite of cases, run a number of times, held to pass
-bars such as `rate(correct) >= 0.9`, under a hard spend cap. Every run leaves a
-report you can compare with the last one.
+bars such as `rate(correct) >= 0.9`, under a hard spend cap. Every run gives a
+report you can write to disk and compare with the last one.
 
 There are two ways in:
 
@@ -222,6 +222,10 @@ Either way the run stops there, and the report says why and lists what did not
 run. Cases start trial-major (every case once, then again), so a run the budget
 stops early still covers every case evenly.
 
+Ctrl-C stops a run too, budget or no budget. A sync case on a worker thread
+can't be cancelled, so the meter refuses every paid call from then on: the case
+ends at its next one, and the run waits for it so its spend is counted.
+
 The framework ships no price list, since rates change and only you know yours.
 You give the meter a function:
 
@@ -238,7 +242,9 @@ def price(model: str, usage) -> Price:
 meter = Meter(Decimal("2"), price=price)
 ```
 
-`known=False` names the model in the report.
+`known=False` names the model in the report. A pricer that raises, or returns a
+cost that is not a number, stops the run: that call went uncounted, so spend is
+unknown and the meter refuses every paid call after it.
 
 ### What the meter sees
 

@@ -165,7 +165,8 @@ def to_markdown(report: EvalReport, data: dict[str, Any]) -> str:
 
 def _redact(text: str, secrets: tuple[str, ...]) -> str:
     for secret in secrets:
-        text = text.replace(secret, "<redacted>")
+        if secret:  # replacing "" would put the marker between every character
+            text = text.replace(secret, "<redacted>")
     return text
 
 

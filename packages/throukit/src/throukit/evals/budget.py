@@ -98,6 +98,11 @@ class Meter:
     # What the cap first refused ("anthropic:claude-haiku-5-5", "voyage"),
     # or None while the run is under budget.
     tripped: Optional[str] = None
+    # The model whose usage the pricer failed on: that call was paid for and
+    # not counted, so the cap refuses every call after it.
+    _unpriced_call: Optional[str] = field(default=None, repr=False)
+    # Why the run was stopped, or None while it may spend.
+    _stopped: Optional[str] = field(default=None, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _cases: list[CaseSpend] = field(default_factory=list, repr=False)
 
@@ -109,6 +114,12 @@ class Meter:
             raise ValueError("budget must be a finite amount >= 0")
         if self.price is None:
             raise ValueError("a budget needs price= to count spend against it")
+
+    @property
+    def pricer_failed_on(self) -> Optional[str]:
+        """The model of a call the pricer failed on (spend is unknown from
+        then on), or None."""
+        return self._unpriced_call
 
     @property
     def remaining_usd(self) -> Optional[Decimal]:
@@ -136,18 +147,34 @@ class Meter:
             return spend
         return self._cases[0] if len(self._cases) == 1 else None
 
-    def guard(self, what: str) -> None:
-        """Refuse a paid call once spend has reached the budget."""
+    def stop(self, reason: str) -> None:
+        """Refuse every paid call from now on, budget or no budget. A sync
+        case on a worker thread can't be cancelled, so after Ctrl-C this is
+        what ends it: at its next paid call."""
         with self._lock:
-            if self.budget_usd is None or self.spent_usd < self.budget_usd:
+            if self._stopped is None:
+                self._stopped = reason
+
+    def guard(self, what: str) -> None:
+        """Refuse a paid call once the run is stopped or spend has reached
+        the budget."""
+        with self._lock:
+            if self._stopped is not None:
+                raise BudgetExceeded(f"eval run stopped ({self._stopped}): refused {what}")
+            if self.budget_usd is None:
+                return
+            if self._unpriced_call is not None:
+                reason = f"the pricer failed on a {self._unpriced_call} call, so spend is unknown"
+            elif self.spent_usd >= self.budget_usd:
+                reason = f"${self.spent_usd:.4f} of ${self.budget_usd:.2f}"
+            else:
                 return
             if self.tripped is None:
                 self.tripped = what
             case = self._current_case()
             if case is not None and case.refused is None:
                 case.refused = what
-            spent, budget = self.spent_usd, self.budget_usd
-        raise BudgetExceeded(f"eval budget reached (${spent:.4f} of ${budget:.2f}): refused {what}")
+        raise BudgetExceeded(f"eval budget reached ({reason}): refused {what}")
 
     def _add(self, cost: Decimal) -> Decimal:
         self.spent_usd += cost
@@ -157,8 +184,16 @@ class Meter:
         return self.spent_usd
 
     def charge_usage(self, model_id: str, usage: Usage) -> Decimal:
-        price = self.price(model_id, usage) if self.price else Price(0, known=False)
-        cost = _usd(price.cost)
+        try:
+            price = self.price(model_id, usage) if self.price else Price(0, known=False)
+            cost = _usd(price.cost)
+        except Exception:
+            # The model observer logs this and carries on, so the call would
+            # go uncounted: stop the run's paid calls here instead. A price
+            # that is not a number fails the same way as a pricer that raises.
+            with self._lock:
+                self._unpriced_call = model_id
+            raise
         with self._lock:
             row = self.models.setdefault(
                 model_id,
