@@ -1,0 +1,72 @@
+site_name: Throukit
+site_description: A small, provider-neutral Python framework for AI agents that act on real, signed-in tools.
+site_url: https://throuai.github.io/throukit/
+repo_url: https://github.com/throuai/throukit
+repo_name: throuai/throukit
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Throu, Inc. MIT licensed.
+
+# The work log is project history for maintainers, not user docs.
+exclude_docs: |
+  worklog/
+  worklog.jsonl
+
+nav:
+  - Home: README.md
+  - Getting started: getting-started.md
+  - Core concepts: concepts.md
+  - Agent files: file-first.md
+  - Connectors: connectors.md
+  - Durability & networks: durability.md
+  - Evals: evals.md
+  - API reference: reference.md
+  - Design:
+      - Design record: design.md
+      - Deferred improvements: deferred-improvements.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.sections
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [packages/throukit/src, packages/throukit-connectors/src]
+          options:
+            docstring_style: google
+            members_order: source
+            show_root_heading: true
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true
+            filters: ["!^_"]

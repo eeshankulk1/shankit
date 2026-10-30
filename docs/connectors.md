@@ -2,11 +2,11 @@
 
 The opt-in integration layer for tools that need OAuth-style account
 linking. Local-function and MCP users never touch this; everything here
-lives in the separate [`shankit-connectors`](../packages/shankit-connectors)
+lives in the separate [`throukit-connectors`](https://github.com/throuai/throukit/tree/main/packages/throukit-connectors)
 package.
 
 ```bash
-pip install shankit-connectors[composio]
+pip install throukit-connectors[composio]
 ```
 
 The litmus for this layer (design §4): **you could swap Composio for a
@@ -16,8 +16,8 @@ with a connection lifecycle bolted on.
 
 ## The contract
 
-A `Connector` is a `shankit.ToolSource` — the same two-method seam the agent
-loop already speaks (`list_tools` / `execute`) — **plus** three lifecycle
+A `Connector` is a `throukit.ToolSource` - the same two-method seam the agent
+loop already speaks (`list_tools` / `execute`) - **plus** three lifecycle
 methods consumed only by your connection UI:
 
 | Method | Purpose |
@@ -27,8 +27,8 @@ methods consumed only by your connection UI:
 | `adopt(context, connection_id=...)` | Adopt a connection created outside this app (vendor dashboard, previous system) |
 
 `ConnectionStatus.status` is one of `pending`, `active`, `failed`,
-`expired`. Statuses a connector doesn't recognize report as `failed` —
-terminal — so your connect UI never polls a dead connection forever.
+`expired`. Statuses a connector doesn't recognize report as `failed` -
+terminal - so your connect UI never polls a dead connection forever.
 
 The split exists because the runtime seam (what the loop touches) changes
 at a different rate than the vendor-shaped lifecycle (what your connect
@@ -42,13 +42,13 @@ credentials to use by reading your plain data off the opaque per-run
 context, through an extractor **you** supply:
 
 ```python
-from shankit_connectors import ComposioConnector
+from throukit_connectors import ComposioConnector
 
 gmail = ComposioConnector(
     toolkit="GMAIL",
     user_id=lambda ctx: ctx["user_id"],   # you decide what identity means
 )
-agent = Agent(name="mail", model="anthropic:claude-sonnet-4-5", tools=[gmail])
+agent = Agent(name="mail", model="anthropic:claude-sonnet-5-5", tools=[gmail])
 
 await agent.run("Summarize today's inbox.", context={"user_id": "u42"}, output_type=str)
 ```
@@ -58,7 +58,7 @@ used).
 
 When an extractor **is** configured, the lifecycle methods are scoped to
 it: `check_status`/`adopt` verify the connection actually belongs to the
-user the context resolves to, and raise `PermissionError` otherwise — a
+user the context resolves to, and raise `PermissionError` otherwise - a
 leaked or guessed connection id can't be linked cross-tenant.
 
 ## The connection flow
@@ -82,10 +82,10 @@ status = await gmail.adopt(ctx, connection_id="conn_existing")
 | Option | What it does |
 |---|---|
 | `toolkit` | The Composio toolkit slug (e.g. `"GMAIL"`) |
-| `tools=[...]` | Allowlist of tool slugs to expose — **recommended**, toolkits can run to hundreds of tools |
+| `tools=[...]` | Allowlist of tool slugs to expose - **recommended**, toolkits can run to hundreds of tools |
 | `tools_cache_ttl=600` | Cache the tool catalog for N seconds. The loop lists tools every run; an uncached catalog costs a vendor round-trip per turn. Identity only matters at `execute`, so one cache per connector is safe |
 | `client=` / `api_key=` | Bring an existing `composio.Composio` client, or construct one |
-| `skip_version_check=True` | Follow the latest toolkit version when the client pins none. Left off, an unpinned client surfaces an actionable `ToolError` telling you to pin or opt in — an explicit choice, because a breaking toolkit release can change behavior without a code change |
+| `skip_version_check=True` | Follow the latest toolkit version when the client pins none. Left off, an unpinned client surfaces an actionable `ToolError` telling you to pin or opt in - an explicit choice, because a breaking toolkit release can change behavior without a code change |
 
 ### Slimming vendor responses
 
@@ -105,25 +105,25 @@ class SlimGmail(ComposioConnector):
 Connectors follow the framework's uniform tool-error contract
 ([concepts](concepts.md)): a vendor-reported failure raises `ToolError`
 (model-visible, recorded on the trajectory); anything else is sanitized by
-the loop. Known, actionable vendor failures — like Composio's
-version-pinning requirement — are translated into `ToolError`s that state
+the loop. Known, actionable vendor failures - like Composio's
+version-pinning requirement - are translated into `ToolError`s that state
 the remedy rather than an opaque "failed unexpectedly".
 
 ## Writing your own connector
 
-Subclass `shankit_connectors.Connector`, implement the two seam methods and
+Subclass `throukit_connectors.Connector`, implement the two seam methods and
 the three lifecycle methods, and keep every vendor concept inside your
 module. `ComposioConnector`
-([source](../packages/shankit-connectors/src/shankit_connectors/composio.py))
+([source](https://github.com/throuai/throukit/blob/main/packages/throukit-connectors/src/throukit_connectors/composio.py))
 is the reference implementation; its test suite
-([tests](../packages/shankit-connectors/tests/test_composio.py)) shows how
+([tests](https://github.com/throuai/throukit/blob/main/packages/throukit-connectors/tests/test_composio.py)) shows how
 to verify one against a mocked SDK, including the agent-loop integration
 test proving a connector is a plain `ToolSource`.
 
 ## See also
 
-- [Core concepts](concepts.md) — the tool seam and the opaque per-run context.
-- [Design §4](design.md) — why the connector layer is a separate package.
+- [Core concepts](concepts.md) - the tool seam and the opaque per-run context.
+- [Design §4](design.md) - why the connector layer is a separate package.
 
 ---
 

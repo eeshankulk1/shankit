@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.26"]  # PEP 639 SPDX license expression needs >=1.26
+build-backend = "hatchling.build"
+
+[project]
+name = "throukit-connectors"
+version = "0.1.0"
+description = "Opt-in connector layer for throukit: connection lifecycle for OAuth-backed tool sources."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Throu, Inc." }]
+keywords = ["ai", "agents", "llm", "tools", "oauth", "connectors", "composio"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "throukit>=0.1.0,<0.2",
+    "pydantic>=2.7,<3",
+]
+
+[project.optional-dependencies]
+# The implementation targets the composio v3 SDK surface; cap below the next
+# major so a breaking vendor release can't install silently.
+composio = ["composio>=0.8.0,<1.0"]
+
+[project.urls]
+Homepage = "https://github.com/throuai/throukit"
+Repository = "https://github.com/throuai/throukit"
+Issues = "https://github.com/throuai/throukit/issues"
+Documentation = "https://throuai.github.io/throukit/"
+Changelog = "https://github.com/throuai/throukit/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/throukit_connectors"]
+
+[tool.uv.sources]
+throukit = { workspace = true }

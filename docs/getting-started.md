@@ -5,20 +5,20 @@ two ways. It assumes you're comfortable with Python and `async`/`await`.
 
 ## Install
 
-shankit is a small core with opt-in extras — you only pull in the provider SDKs
+Throukit is a small core with opt-in extras - you only pull in the provider SDKs
 you actually use.
 
 ```bash
-pip install shankit[anthropic]   # Anthropic models
-pip install shankit[openai]      # OpenAI models
-pip install shankit[mcp]         # MCP tool servers
-pip install shankit[otel]        # OpenTelemetry tracing
-pip install shankit[all]         # everything above
+pip install throukit[anthropic]   # Anthropic models
+pip install throukit[openai]      # OpenAI models
+pip install throukit[mcp]         # MCP tool servers
+pip install throukit[otel]        # OpenTelemetry tracing
+pip install throukit[all]         # everything above
 ```
 
 > **Not yet on PyPI.** Until the first release, install from source:
 > ```bash
-> pip install -e packages/shankit
+> pip install -e packages/throukit
 > ```
 
 Set the API key for whichever provider you're using:
@@ -37,7 +37,7 @@ is just a function decorated with `@tool`; its docstring is what the model sees.
 ```python
 import asyncio
 from pydantic import BaseModel, Field
-from shankit import Agent, ToolError, tool
+from throukit import Agent, ToolError, tool
 
 # --- Tools are code. ------------------------------------------------------
 FAKE_ORDERS = {
@@ -50,7 +50,7 @@ FAKE_ORDERS = {
 @tool
 def list_orders(ctx) -> list:
     """List the acting user's orders."""
-    # `ctx` is the opaque per-run context. The framework never reads inside it —
+    # `ctx` is the opaque per-run context. The framework never reads inside it -
     # whose orders these are is YOUR concern, resolved from your own data.
     return FAKE_ORDERS.get(ctx["user_id"], [])
 
@@ -68,18 +68,18 @@ def cancel_order(ctx, order_id: str) -> str:
 # --- The agent. -----------------------------------------------------------
 agent = Agent(
     name="orders-assistant",
-    model="anthropic:claude-sonnet-4-5",   # provider prefix is required
+    model="anthropic:claude-sonnet-5-5",   # provider prefix is required
     instructions="You help users manage their orders. Be concise.",
     tools=[list_orders, cancel_order],
 )
 ```
 
 > The `model` string **always** carries a provider prefix (`anthropic:...`,
-> `openai:...`). There is no silent default vendor. To use a provider shankit
+> `openai:...`). There is no silent default vendor. To use a provider Throukit
 > doesn't know, register it with `register_provider()` or pass your own
 > `model_client=`.
 
-## Run mode 1 — structured
+## Run mode 1: structured
 
 Call `run()` with an `output_type` to get a typed, validated deliverable. This
 is the path for skills, background jobs, and anything that produces a result
@@ -104,13 +104,13 @@ asyncio.run(main())
 ```
 
 `result.output` is the **answer** (validated against your schema).
-`result.text` is the **transcript** — every assistant text pass joined, including
+`result.text` is the **transcript** - every assistant text pass joined, including
 any interim narration before tool calls. Score and act on `output`; display and
 persist `text`.
 
-## Run mode 2 — streaming
+## Run mode 2: streaming
 
-Call `stream()` for a live, typed event stream — text deltas, user-facing steps,
+Call `stream()` for a live, typed event stream - text deltas, user-facing steps,
 sources, usage, and a terminal `done` (or `error`). This is the path for chat
 UIs and anything a human watches in real time.
 
@@ -125,28 +125,27 @@ async for event in agent.stream("Cancel my usb hub order.", context={"user_id": 
 ```
 
 Both modes run the **same agent over the same loop**. Whether to ask for
-structured output is the caller's choice at call time — there is no "chat agent"
+structured output is the caller's choice at call time - there is no "chat agent"
 vs. "skill agent" distinction baked into the object.
 
 ## Handling failure
 
 Tool and model failures follow one uniform contract:
 
-- **Controlled tool failure** — `raise ToolError("message the model sees")`. The
+- **Controlled tool failure** - `raise ToolError("message the model sees")`. The
   model receives exactly that text and can recover.
-- **Unexpected tool failure** — any other exception is caught, logged in full,
+- **Unexpected tool failure** - any other exception is caught, logged in full,
   and sanitized to a generic message before the model sees it. Secrets and
   tracebacks never leak into the transcript.
-- **Provider failure** — a failed model call surfaces as `shankit.ModelError`
+- **Provider failure** - a failed model call surfaces as `throukit.ModelError`
   (with `provider`, `status`, and a `retryable` flag), never a raw provider SDK
   exception. In `stream()`, framework errors arrive as a terminal `error` event.
 
 ## Next steps
 
-- **[Core concepts](concepts.md)** — the tool seam, the per-run context, and how
+- **[Core concepts](concepts.md)** - the tool seam, the per-run context, and how
   the two run modes share one loop.
-- **[File-first definitions](file-first.md)** — author this same agent as a
+- **[File-first definitions](file-first.md)** - author this same agent as a
   reviewable Markdown file.
-- **[Examples](../examples)** — runnable scripts for multi-agent, evals, SSE, and
+- **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - runnable scripts for multi-agent, evals, SSE, and
   the experimental network.
-</content>

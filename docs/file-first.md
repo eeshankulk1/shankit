@@ -3,7 +3,7 @@
 The headline authoring surface. Define an agent as a Markdown file with YAML
 frontmatter, borrowing the Claude Code subagent mental model your target
 audience already knows. A file produces the **same** `Agent` object the Python
-constructor would — the file is sugar, never a second code path.
+constructor would - the file is sugar, never a second code path.
 
 The governing split:
 
@@ -17,7 +17,7 @@ The governing split:
 ---
 name: email-triage
 description: Triages the inbox and proposes what to do next.
-model: anthropic:claude-sonnet-4-5
+model: anthropic:claude-sonnet-5-5
 tools:
   - myapp.tools:search_email     # import reference (module:attribute)
   - myapp.tools:read_email
@@ -31,7 +31,7 @@ Prioritize anything that looks time-sensitive.
 ```
 
 ```python
-from shankit import load_agent, register
+from throukit import load_agent, register
 
 register("gmail", gmail_connector)      # only non-importable live objects need this
 agent = load_agent("agents/triage.md")  # → the same Agent the constructor makes
@@ -46,7 +46,7 @@ immediately).
 |---|---|---|
 | `name` | no (defaults to the filename stem) | Agent identity; also the default `as_tool()` name. |
 | `description` | no | One line; used as the default `as_tool()` description. |
-| `model` | yes¹ | `"provider:model_id"` — same spec as the constructor. |
+| `model` | yes¹ | `"provider:model_id"` - same spec as the constructor. |
 | `tools` | no | A YAML list of tool **references** (see below). |
 | `output_schema` | no | An **import reference** to a type; its presence lets the agent be run structured. |
 
@@ -55,24 +55,24 @@ immediately).
 
 There is no `mode` key: a file is just an agent, and the caller still chooses
 `run()` vs `stream()` at call time. `output_schema` is the _only_ addition over
-Claude Code frontmatter — everything else mirrors it, and shankit diverges only
+Claude Code frontmatter - everything else mirrors it, and Throukit diverges only
 to _add_, never to rename.
 
 ## References: import vs. registry
 
-Tool and schema references use **standard Python**, not invented syntax. shankit
+Tool and schema references use **standard Python**, not invented syntax. Throukit
 disambiguates on the colon:
 
 - **`module:attribute`** → an ordinary Python import (`uvicorn`/entry-point
   style). Use this for anything importable: `@tool` functions, a
   `CompositeToolSource`, or an `output_schema` type. `output_schema` **must** be
-  an import reference — a type is always importable.
+  an import reference - a type is always importable.
 - **bare `name`** → a lookup in the registry. Use this only for **live,
-  configured objects that can't be imported** — a connector instance, an MCP
+  configured objects that can't be imported** - a connector instance, an MCP
   source you built at startup. Register it explicitly:
 
   ```python
-  from shankit import register
+  from throukit import register
   register("gmail", gmail_connector)
   ```
 
@@ -88,7 +88,7 @@ The body is a prompt with **fill-in-the-blank substitution only**:
 
 - `{placeholder}` is replaced from the per-run **context** and load-time
   **variables** (variables win on a name clash).
-- Only simple names work — `{user_name}`, not `{user.name}` or `{items[0]}`.
+- Only simple names work - `{user_name}`, not `{user.name}` or `{items[0]}`.
   Attribute/index access, format specs, and conversions all raise
   `PromptVariableError`.
 - A placeholder that can't be filled from either source is an error, not a
@@ -111,13 +111,13 @@ rather than quietly becoming code.
 ## Loading
 
 ```python
-from shankit import load_agent, load_agents
+from throukit import load_agent, load_agents
 
 # One file → one Agent.
 agent = load_agent(
     "agents/triage.md",
     variables={...},          # optional load-time placeholder values
-    default_model="anthropic:claude-sonnet-4-5",  # optional fallback if the file omits model
+    default_model="anthropic:claude-sonnet-5-5",  # optional fallback if the file omits model
     describe_step=my_describer,                    # observability is configured in code, not prose
     agent_kwargs={"workspace": my_workspace},       # runtime wiring the file can't express
 )
@@ -126,11 +126,11 @@ agent = load_agent(
 agents = load_agents("agents/", agent_kwargs={"workspace": my_workspace})
 ```
 
-Observability (`describe_step`) is passed in code, not declared in frontmatter —
+Observability (`describe_step`) is passed in code, not declared in frontmatter -
 it's a capability (a function), and capabilities live in Python.
 
 `agent_kwargs` passes through any further `Agent` option the frontmatter has
-no key for — a `workspace=`, `max_tool_result_chars=`, `reasoning=` — to every
+no key for - a `workspace=`, `max_tool_result_chars=`, `reasoning=` - to every
 agent the call loads. Frontmatter-derived options (`name`, `model`, `tools`,
 `output_type`) win on conflict. `DelegateToolSource.from_directory` builds a
 delegation roster the same way, forwarding `agent_kwargs` to every agent it
@@ -138,13 +138,13 @@ loads so, for example, a shared workspace reaches every sub-agent in the
 directory:
 
 ```python
-from shankit import DelegateToolSource
+from throukit import DelegateToolSource
 
 roster = DelegateToolSource.from_directory(
     "agents/",
     agent_kwargs={"workspace": my_workspace},
 )
-parent = Agent(name="support", model="anthropic:claude-sonnet-4-5", tools=[roster])
+parent = Agent(name="support", model="anthropic:claude-sonnet-5-5", tools=[roster])
 ```
 
 See [Core concepts: delegation](concepts.md#delegation-one-tool-over-a-roster)
@@ -156,20 +156,19 @@ live step forwarding).
 Files cover the common 80%; the Python constructor covers the typed 20%. Reach
 for Python when you need:
 
-- **Real types** — a typed per-run context, or an `output_type` you want your IDE
+- **Real types** - a typed per-run context, or an `output_type` you want your IDE
   to check.
-- **Dynamic instructions** — `instructions` as a function of the context.
-- **Logic in the prompt** — conditionals or loops (see above).
+- **Dynamic instructions** - `instructions` as a function of the context.
+- **Logic in the prompt** - conditionals or loops (see above).
 
 Nobody is forced onto either surface, and neither is a lossy projection of the
 other: the file and the constructor produce the identical object.
 
 ## See also
 
-- **[Core concepts](concepts.md)** — the agent, the tool seam, the per-run
+- **[Core concepts](concepts.md)** - the agent, the tool seam, the per-run
   context.
-- **[Example `02_file_first/`](../examples/02_file_first)** — a runnable
+- **[Example `02_file_first/`](https://github.com/throuai/throukit/tree/main/examples/02_file_first)** - a runnable
   file-first agent.
-- **[Design §5](design.md#5-signature-ergonomic-file-first-definitions)** — the
+- **[Design §5](design.md#5-signature-ergonomic-file-first-definitions)** - the
   reasoning behind the format.
-</content>

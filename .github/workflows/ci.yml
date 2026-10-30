@@ -44,9 +44,9 @@ jobs:
       - name: Install workspace
         run: uv sync --all-packages --locked
       - name: Core tests
-        run: uv run --no-sync pytest packages/shankit/tests -q
+        run: uv run --no-sync pytest packages/throukit/tests -q
       - name: Connector tests
-        run: uv run --no-sync pytest packages/shankit-connectors/tests -q
+        run: uv run --no-sync pytest packages/throukit-connectors/tests -q
 
   build:
     # Packaging breaks silently until something builds it; publish day is
@@ -75,7 +75,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: packages/client-ts/package-lock.json
-      - name: Build and test @shankit/client
+      - name: Build and test @throukit/client
         working-directory: packages/client-ts
         run: |
           npm ci

@@ -1,11 +1,11 @@
 // GENERATED FILE — DO NOT EDIT.
-// Source of truth: packages/shankit/src/shankit/events.py
+// Source of truth: packages/throukit/src/throukit/events.py
 // Regenerate with: python scripts/generate_ts_events.py
 
 /**
  * A typed structured payload surfaced by a tool result.
  *
- * Where a :class:`Source` is semantically a citation, an artifact is
+ * Where a `Source` is semantically a citation, an artifact is
  * content: a piece of typed data the application wants to carry from a
  * tool execution out to the caller intact (e.g. an email card, a
  * calendar event). ``type`` names the application-defined kind;
@@ -41,7 +41,7 @@ export interface Source {
  * models (a sub-agent on a cheaper one) can be priced at each model's
  * rates: the loop tags every model call's usage with its model, and adding
  * usages merges their splits. Usage that arrives untagged (a tool that
- * built its own) stays in the totals only; :meth:`per_model` reports it
+ * built its own) stays in the totals only; `per_model` reports it
  * under ``None``.
  */
 export interface Usage {
@@ -161,7 +161,7 @@ export interface ErrorEvent {
  * conversation it is ``None``. ``truncated`` is true if any model pass of
  * the run (or of a sub-agent run reporting through the tool seam) stopped
  * at the token limit, meaning the result may be incomplete. ``stopped``
- * says the run ended early by :class:`~shankit.RunControl`: ``"budget"``
+ * says the run ended early by `throukit.RunControl`: ``"budget"``
  * (it reached its budget and wrote a last report) or ``"cancelled"``.
  */
 export interface DoneEvent {
@@ -173,7 +173,7 @@ export interface DoneEvent {
   stopped: "budget" | "cancelled" | null;
 }
 
-/** Every event a shankit agent stream can emit. A stream ends with
+/** Every event a throukit agent stream can emit. A stream ends with
  * exactly one terminal event: `done` or `error`. */
 export type AgentEvent = TextDeltaEvent | StepEvent | SourceEvent | ArtifactEvent | UsageEvent | WorkerEvent | ErrorEvent | DoneEvent;
 

@@ -1,5 +1,5 @@
 /**
- * @shankit/client — typed consumption of shankit agent event streams.
+ * @throukit/client — typed consumption of throukit agent event streams.
  *
  * This SDK consumes agent runs over SSE/HTTP; it does not run agents
  * (design §8). Event types are generated from the Python source of truth.
@@ -45,10 +45,10 @@ export async function* streamEvents(
   if (!headers.has("accept")) headers.set("accept", "text/event-stream");
   const response = await doFetch(input, { ...init, headers });
   if (!response.ok) {
-    throw new Error(`shankit: stream request failed with HTTP ${response.status}`);
+    throw new Error(`throukit: stream request failed with HTTP ${response.status}`);
   }
   if (response.body === null) {
-    throw new Error("shankit: stream response has no body");
+    throw new Error("throukit: stream response has no body");
   }
   yield* parseSSEStream(response.body);
 }
@@ -72,7 +72,7 @@ export async function collectRun(
 ): Promise<DoneEvent> {
   for await (const event of events) {
     if (isDone(event)) return event;
-    if (isError(event)) throw new Error(`shankit: run failed: ${event.message}`);
+    if (isError(event)) throw new Error(`throukit: run failed: ${event.message}`);
   }
-  throw new Error("shankit: stream ended without a terminal event");
+  throw new Error("throukit: stream ended without a terminal event");
 }

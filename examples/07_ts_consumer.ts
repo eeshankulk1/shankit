@@ -1,11 +1,11 @@
 /**
- * Consuming a shankit agent stream from TypeScript.
+ * Consuming a throukit agent stream from TypeScript.
  *
- * npm install @shankit/client
+ * npm install @throukit/client
  * (pair with examples/06_sse_server.py)
  */
 
-import { streamEvents } from "@shankit/client";
+import { streamEvents } from "@throukit/client";
 
 for await (const event of streamEvents("http://localhost:8000/agents/support/stream", {
   method: "POST",

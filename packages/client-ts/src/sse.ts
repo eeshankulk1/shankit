@@ -1,7 +1,7 @@
 /**
- * A minimal, dependency-free SSE parser for shankit event streams.
+ * A minimal, dependency-free SSE parser for throukit event streams.
  *
- * The wire format is produced by `shankit.sse.format_sse` on the Python
+ * The wire format is produced by `throukit.sse.format_sse` on the Python
  * side: one SSE message per event, JSON in the `data` field (which carries
  * the discriminating `type`, so the SSE `event` field is informational).
  * Line endings may be LF, CRLF, or lone CR (all spec-legal), in any mix.
@@ -64,7 +64,7 @@ export async function* parseSSEStream(
     try {
       return JSON.parse(payload) as AgentEvent;
     } catch {
-      throw new Error(`shankit: received malformed event data: ${payload.slice(0, 200)}`);
+      throw new Error(`throukit: received malformed event data: ${payload.slice(0, 200)}`);
     }
   };
 

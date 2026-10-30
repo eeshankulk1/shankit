@@ -13,9 +13,9 @@ function byteStream(chunks) {
   });
 }
 
-// Golden fixture: the exact bytes shankit.sse.format_sse emits (compact
+// Golden fixture: the exact bytes throukit.sse.format_sse emits (compact
 // JSON, all Usage fields present, LF endings). Regenerate with:
-//   python -c "from shankit import format_sse; ..."
+//   python -c "from throukit import format_sse; ..."
 const SSE_BODY =
   'event: text_delta\ndata: {"type":"text_delta","text":"hel"}\n\n' +
   'event: text_delta\ndata: {"type":"text_delta","text":"lo"}\n\n' +

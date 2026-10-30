@@ -4,7 +4,7 @@
 # packages editable plus this dev group into .venv (see CONTRIBUTING.md).
 
 [tool.uv.workspace]
-members = ["packages/shankit", "packages/shankit-connectors"]
+members = ["packages/throukit", "packages/throukit-connectors"]
 
 [dependency-groups]
 dev = [
@@ -18,6 +18,12 @@ dev = [
     # Optional-extra SDKs kept installed so pyright checks their modules.
     "mcp>=1.2.0",
     "opentelemetry-api>=1.25.0",
+]
+# The documentation site (Zensical reads mkdocs.yml):
+# `uv run --group docs zensical serve`.
+docs = [
+    "zensical>=0.0.73; python_version >= '3.11'",  # needs 3.11+; the docs job uses 3.12
+    "mkdocstrings[python]>=0.30",
 ]
 
 # Lets `pytest packages/...` run from the repo root (CI does this); the same
@@ -56,7 +62,7 @@ ignore = [
 "examples/*" = ["E402"]
 
 [tool.pyright]
-include = ["packages/shankit/src", "packages/shankit-connectors/src", "scripts"]
+include = ["packages/throukit/src", "packages/throukit-connectors/src", "scripts"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 venvPath = "."

@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # make tools_email importable
 
-from shankit import load_agent
+from throukit import load_agent
 
 agent = load_agent(Path(__file__).parent / "triage.md")
 

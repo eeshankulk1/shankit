@@ -1,6 +1,6 @@
-# shankit documentation
+# Throukit documentation
 
-The complete guide to shankit — an AI agent framework that takes the
+The complete guide to Throukit - an AI agent framework that takes the
 integration seam as seriously as the agent loop itself, without imposing how
 you authenticate.
 
@@ -21,21 +21,22 @@ reference you can reach for when you need it.
 
 ## Reference
 
-- **[Examples](../examples)** — a runnable script for every major surface.
-- **[Design decision record](design.md)** — the living spec: the thesis, the
+- **[API reference](reference.md)** - generated from the source docstrings:
+  every exported class, function, and event type.
+- **[Examples](https://github.com/throuai/throukit/tree/main/examples)** - a runnable script for every major surface.
+- **[Design decision record](design.md)** - the living spec: the thesis, the
   competitive landscape, and _why_ every primitive is shaped the way it is.
-- **[Deferred improvements](deferred-improvements.md)** — design-level changes
+- **[Deferred improvements](deferred-improvements.md)** - design-level changes
   considered and consciously deferred, with the reasoning.
 
 ## Packages
 
 | Package | Role |
 |---|---|
-| [`shankit`](../packages/shankit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
-| [`shankit-connectors`](../packages/shankit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
-| [`@shankit/client`](../packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
+| [`throukit`](https://github.com/throuai/throukit/tree/main/packages/throukit) | The Python core: the agent, the tool seam, models, files, durability, evals, and the experimental graph. |
+| [`throukit-connectors`](https://github.com/throuai/throukit/tree/main/packages/throukit-connectors) | The opt-in OAuth connector layer + the official Composio connector. |
+| [`@throukit/client`](https://github.com/throuai/throukit/tree/main/packages/client-ts) | The typed TypeScript consumer for agent event streams over SSE. |
 
 ---
 
-Something unclear or missing? Open an issue — docs gaps are bugs.
-</content>
+Something unclear or missing? Open an issue - docs gaps are bugs.

@@ -1,140 +1,115 @@
 <div align="center">
 
-# shankit
+# Throukit
 
-**The AI agent framework that takes the _integration seam_ — the boundary between an agent and the real, authenticated tools it acts on — as seriously as the agent loop itself. Without imposing how you authenticate.**
+**A small, provider-neutral Python framework for AI agents that act on real, signed-in tools.**
 
-[![CI](https://github.com/eeshankulk1/shankit/actions/workflows/ci.yml/badge.svg)](https://github.com/eeshankulk1/shankit/actions/workflows/ci.yml)
+[![CI](https://github.com/throuai/throukit/actions/workflows/ci.yml/badge.svg)](https://github.com/throuai/throukit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#project-status)
+[![Typed](https://img.shields.io/badge/typed-pyright-blue.svg)](pyproject.toml)
 
-[Quick start](#quick-start) · [Why shankit](#why-shankit) · [Concepts](docs/concepts.md) · [Docs](docs/README.md) · [Examples](examples) · [Design record](docs/design.md)
+[Docs](docs/README.md) · [Getting started](docs/getting-started.md) · [Concepts](docs/concepts.md) · [Examples](examples) · [Changelog](CHANGELOG.md)
 
 </div>
 
 ---
 
-Most frameworks make the agent loop the star and treat _"where do the tools come from"_ as the developer's problem. shankit inverts that: the framework owns the **shape** of the seam — tool format, error contract, observability, per-run context — and never the **mechanism** — auth, credential storage, vendor choice. Bring your own auth; shankit won't have an opinion about it.
+Most agent frameworks put the loop at the center and leave "where do the tools come from, and whose account do they act on" to you. Throukit treats that boundary, the **integration seam**, as part of the framework: one tool format, one error contract, one per-run context, one event stream. It never decides how you authenticate.
 
-It ships one small, typed core (one agent, two run modes, one tool seam) plus the satellites a real product needs — file-first agent definitions, multi-agent orchestration, durability, evals, and a typed TypeScript stream consumer — and nothing it doesn't.
-
-## Table of contents
-
-- [Why shankit](#why-shankit)
-- [Install](#install)
-- [Quick start](#quick-start)
-- [File-first definitions](#file-first-definitions)
-- [Multi-agent: agents as tools](#multi-agent-agents-as-tools)
-- [Connectors: the opt-in integration layer](#connectors-the-opt-in-integration-layer)
-- [Streaming to TypeScript](#streaming-to-typescript)
-- [What else is in the box](#what-else-is-in-the-box)
-- [Examples](#examples)
-- [Documentation](#documentation)
-- [How shankit compares](#how-shankit-compares)
-- [Development](#development)
-- [Contributing](#contributing)
-- [Project status](#project-status)
-- [Telemetry](#telemetry)
-- [License](#license)
-
-## Why shankit
-
-- **Integration seam as a first-class contract.** The entire tool boundary is _two capabilities_ — `list_tools` and `execute` — in Anthropic tool shape, receiving nothing but an opaque per-run context. Local functions, MCP servers, sub-agents, and OAuth connectors all sit behind the same seam.
-- **Auth stays yours.** Nothing in the core mentions authentication. A tool resolves _whose_ credentials to use by reading your plain data off the per-run context; the loop never learns what a "user" is.
-- **One loop, two run modes.** The _same_ agent runs `run()` for a typed, validated deliverable or `stream()` for a live event stream (text deltas, steps, sources, usage). The split is output shape, chosen by the caller — not two engines to keep in sync.
-- **File-first definitions.** Author agents as prose-plus-frontmatter files that mirror Claude Code subagents — diffable, reviewable, no new concepts. Drop to Python the moment you need real types or logic.
-- **Observability as a product surface.** A pluggable step-describer turns each tool call into user-facing narration on the stream — not just developer tracing (OpenTelemetry is available and orthogonal).
-- **Durable by contract, not by platform.** A `Checkpointer` protocol backed by _your_ storage (in-memory and SQLite ship in-box) powers long-running agents and human-in-the-loop approval pauses. No hosted runtime to buy into.
-- **Provider-neutral.** Anthropic and OpenAI at launch behind one `ModelClient` contract; `register_provider()` adds more, or pass your own client.
-- **Python core, typed TypeScript consumer.** `@shankit/client` consumes agent streams over SSE with event types generated from the Python source of truth — CI fails on drift.
+The core is one agent with two run modes and a two-method tool interface. Around it sit the pieces a real product needs: agents defined in Markdown files, sub-agents, durable runs with approval pauses, evals, and a typed TypeScript client.
 
 ## Install
 
 ```bash
-pip install shankit[anthropic]            # or [openai], [mcp], [otel], [all]
-pip install shankit-connectors[composio]  # opt-in OAuth connector layer
-npm install @shankit/client               # typed TypeScript stream consumer
+pip install "throukit[anthropic]"            # or [openai], [mcp], [otel], [all]
+pip install "throukit-connectors[composio]"  # optional OAuth connector layer
+npm install @throukit/client                 # typed TypeScript stream consumer
 ```
 
-> **Not yet published to PyPI / npm.** Install from source for now:
+> **Not on PyPI or npm yet.** Until the first release, install from GitHub:
+>
 > ```bash
-> pip install -e packages/shankit
+> pip install "throukit[anthropic] @ git+https://github.com/throuai/throukit#subdirectory=packages/throukit"
 > ```
 
 ## Quick start
 
-### 1. Your first agent
-
-A tool is a plain function. The agent is a model, instructions, and tools. Run it structured for a typed result, or stream it for a live conversation — over the same loop.
+A tool is a plain function. An agent is a model, instructions and tools. The same agent runs two ways: `run()` returns a typed result, and `stream()` yields live events.
 
 ```python
 import asyncio
 from pydantic import BaseModel
-from shankit import Agent, ToolError, tool
+from throukit import Agent, tool
 
 @tool
 def list_orders(ctx) -> list:
-    """List the acting user's orders."""
-    # `ctx` is the opaque per-run context: YOUR plain data, threaded to tools.
-    # The framework never reads inside it — this is how a tool knows *whose*
-    # orders to fetch without the loop knowing what a "user" is.
+    """List the signed-in user's orders."""
+    # ctx is your own per-run data. Throukit never reads it, so the tool
+    # decides whose orders to fetch, not the framework.
     return db.orders_for(ctx["user_id"])
 
-class OrdersSummary(BaseModel):
+class Summary(BaseModel):
     open_orders: int
     headline: str
 
 agent = Agent(
     name="orders",
-    model="anthropic:claude-sonnet-4-5",   # or "openai:gpt-4.1", or bring your own ModelClient
+    model="anthropic:claude-sonnet-5-5",   # or "openai:gpt-5.5", or your own ModelClient
     instructions="You help users manage their orders. Be concise.",
     tools=[list_orders],
 )
 
 async def main():
-    # Structured: a typed, validated deliverable (the caller chooses the shape).
-    result = await agent.run(
-        "Summarize my orders.", context={"user_id": "u1"}, output_type=OrdersSummary
-    )
-    print(result.output)      # OrdersSummary(open_orders=2, headline="...")
-    print(result.trajectory)  # every tool call, for evals
-    print(result.usage)       # tokens, including any sub-agents
+    # A typed, validated result.
+    result = await agent.run("Summarize my orders.", context={"user_id": "u1"}, output_type=Summary)
+    print(result.output, result.usage)
+
+    # The same agent, streamed.
+    async for event in agent.stream("Where is order 42?", context={"user_id": "u1"}):
+        if event.type == "text_delta":
+            print(event.text, end="")
+        elif event.type == "step":
+            print(f"\n[{event.status}] {event.title}")   # narration you can show users
 
 asyncio.run(main())
 ```
 
-### 2. Stream the same agent
+A tool reports a failure the model should see with `ToolError("...")`. Any other exception is logged in full for you and reaches the model only as a short, safe message. A failed provider call raises `ModelError`, never a raw SDK exception.
 
-Streaming yields a typed event stream — the single source of truth the TypeScript client renders and that your SSE route maps onto directly.
+[Getting started](docs/getting-started.md) walks through this example step by step.
 
-```python
-async for event in agent.stream("Where is order 42?", context={"user_id": "u1"}):
-    if event.type == "text_delta":
-        print(event.text, end="", flush=True)
-    elif event.type == "step":
-        print(f"\n[{event.status}] {event.title}")   # user-facing narration
-    elif event.type == "error":
-        print(f"\n[error] {event.message}")          # calm, human-safe terminal event
-    elif event.type == "done":
-        print(f"\n({event.usage.input_tokens} in / {event.usage.output_tokens} out)")
-```
+## Why Throukit
 
-Tool failures follow one uniform contract: raise `ToolError("message the model sees")` for a controlled failure; any other exception is sanitized before the model sees it and logged in full for you. A failed provider call surfaces as `ModelError` (with `retryable`) — never a raw SDK exception across the neutral boundary.
+- **The tool seam is the contract.** A tool source has two methods, `list_tools` and `execute`, and gets nothing but your per-run context. Local functions, MCP servers, sub-agents and OAuth connectors all sit behind it.
+- **Auth stays yours.** Nothing in the core knows what a user or a credential is. Tools read whose account to act on from your own data.
+- **One loop, two outputs.** `run()` and `stream()` share one loop, so typed results and live streams never drift apart.
+- **Steps users can read.** Each tool call becomes a short, human title on the event stream, ready to show in your UI. OpenTelemetry tracing is there too, for you.
+- **Provider-neutral, durable on your storage.** Anthropic and OpenAI ship in the box, `register_provider()` adds more, and checkpoints go to storage you own (in-memory and SQLite included). No hosted runtime.
 
-## File-first definitions
+## What's in the box
 
-The headline authoring surface. Frontmatter mirrors Claude Code subagents; the one addition is `output_schema`, whose presence lets the agent be run structured. The body is a prompt with fill-in-the-blank substitution only — the moment it needs an `if`, define the agent in Python instead.
+| | |
+|---|---|
+| **Tools** | `@tool` functions, MCP servers (`MCPToolSource`), sub-agents (`agent.as_tool()`, `DelegateToolSource`), agent copies that split work (`CloneToolSource`), and connectors, all behind one interface |
+| **Agent files** | Define agents as Markdown with frontmatter, in the same shape as Claude Code subagents ([guide](docs/file-first.md)) |
+| **Run control** | Cancel, message, budget and checkpoint a run from outside it (`RunControl`) |
+| **Durability** | `Checkpointer` contract on your storage; powers human approval pauses ([guide](docs/durability.md)) |
+| **Evals** | Datasets, scorers, model-graded judging and checks on the tools an agent called ([guide](docs/evals.md)) |
+| **Connectors** | [`throukit-connectors`](packages/throukit-connectors): OAuth connection lifecycle with an official Composio implementation ([guide](docs/connectors.md)) |
+| **TypeScript** | [`@throukit/client`](packages/client-ts): typed SSE consumer whose event types are generated from the Python models, so CI catches any drift |
+| **Models** | Anthropic and OpenAI behind one `ModelClient`, `register_provider()` for more, and `ObservedModel` to meter, log or cap every call |
+| **Testing** | `throukit.testing.ScriptedModel` scripts model turns, and record/replay `Cassette`s capture real ones, for fast tests with no network |
+
+## Agent files
 
 ```markdown
 ---
 name: email-triage
 description: Triages the inbox and proposes what to do next.
-model: anthropic:claude-sonnet-4-5
+model: anthropic:claude-sonnet-5-5
 tools:
-  - myapp.tools:search_email     # standard module:attribute import reference
-  - gmail                        # a live object you explicitly registered
+  - myapp.tools:search_email
 output_schema: myapp.schemas:TriagePlan
 ---
 You are an email triage assistant for {user_name}.
@@ -142,148 +117,62 @@ Work through the inbox with your tools, then deliver a triage plan.
 ```
 
 ```python
-from shankit import load_agent, register
+from throukit import load_agent
 
-register("gmail", gmail_connector)      # only non-importable live objects need this
-agent = load_agent("agents/triage.md")  # → the SAME Agent the constructor makes
+agent = load_agent("agents/triage.md")  # the same Agent the constructor builds
 ```
 
-A file produces the identical `Agent` object the Python constructor would — the file is sugar, never a second code path. See the [file-first guide](docs/file-first.md) for the full frontmatter reference.
-
-## Multi-agent: agents as tools
-
-Handing sub-agents to a parent agent _is_ orchestration — with routing, sanitized sub-agent failures, source propagation, and cross-agent token accounting built into the seam:
+## Stream to a web app
 
 ```python
-oncall = Agent(
-    name="oncall",
-    model="anthropic:claude-sonnet-4-5",
-    instructions="Coordinate specialists to answer on-call questions.",
-    tools=[docs_agent.as_tool(), metrics_agent.as_tool()],
-)
-```
-
-Or the agent splits its own work: `CloneToolSource` gives it a `spawn` tool that runs each part as a **clone** — the same agent with a fresh history seeded by a brief, so it shares the parent's prompt cache — under code-enforced depth, caps, budgets and call-time refusals, on a host you can swap for your own durable runner. `RunControl` cancels, messages, budgets and checkpoints any run from outside it ([concepts](docs/concepts.md#clones-the-agent-splits-its-work-across-copies-of-itself)).
-
-When **code**, not the model, must control flow — deterministic routing, cycles, shared state, and durable human-in-the-loop pauses — there's an experimental router-driven [network](docs/durability.md#networks-experimental). The state the router reads _is_ what the checkpointer persists, so approval pauses fall out of the design rather than being bolted on.
-
-## Connectors: the opt-in integration layer
-
-Local-function and MCP users never touch this. For tools that need OAuth, the separate [`shankit-connectors`](packages/shankit-connectors) package wraps a tool source and owns the connection lifecycle (initiate / check-status / adopt), shipping one official implementation — Composio.
-
-```python
-from shankit_connectors import ComposioConnector
-
-gmail = ComposioConnector(
-    toolkit="GMAIL",
-    user_id=lambda ctx: ctx["user_id"],   # you decide what identity means
-)
-agent = Agent(name="mail", model="anthropic:claude-sonnet-4-5", tools=[gmail])
-```
-
-The litmus for this layer: **you could swap Composio for a completely different system without the framework noticing.**
-
-## Streaming to TypeScript
-
-```python
-# FastAPI (any ASGI framework works)
-return StreamingResponse(sse_stream(agent.stream(prompt, context=ctx)),
-                         media_type="text/event-stream")
+# FastAPI, or any ASGI framework
+return StreamingResponse(sse_stream(agent.stream(prompt, context=ctx)), media_type="text/event-stream")
 ```
 
 ```ts
-import { streamEvents } from "@shankit/client";
+import { streamEvents } from "@throukit/client";
 
 for await (const event of streamEvents("/agents/support/stream", { method: "POST", body })) {
   if (event.type === "text_delta") render(event.text);
-  if (event.type === "step")       showStep(event.title, event.status);
-  if (event.type === "error")      showError(event.message);
+  if (event.type === "step") showStep(event.title, event.status);
 }
 ```
 
-Event types are **generated** from the Python pydantic models, so the two languages cannot drift — CI enforces it.
-
-## What else is in the box
-
-| | |
-|---|---|
-| **Tool sources** | `@tool` local functions, any MCP server (`MCPToolSource`), aggregation (`CompositeToolSource`), sub-agents, and connectors — all behind one two-method seam in Anthropic tool shape |
-| **Observability** | pluggable step-describer → user-facing step narration on the event stream; optional OpenTelemetry spans for dev tracing |
-| **Durability** | `Checkpointer` contract backed by _your_ storage; in-memory + SQLite ship in-box; powers HITL approval pauses |
-| **Evals** | datasets, scorers (`exact_match`, `output_contains`, `llm_judge`), and trajectory assertions over `result.trajectory` |
-| **Models** | provider-neutral `ModelClient`; Anthropic + OpenAI at launch, `register_provider()` for more; `ObservedModel` to meter, log or cap every call; `shankit.testing.ScriptedModel` and record/replay `Cassette`s for deterministic tests |
-| **Connectors** | opt-in [`shankit-connectors`](packages/shankit-connectors): connection lifecycle + official Composio implementation |
-| **TypeScript** | [`@shankit/client`](packages/client-ts): typed SSE consumption, event types generated from the Python source of truth |
-
-## Examples
-
-Every major surface has a runnable example in [`examples/`](examples):
-
-| Example | Shows |
-|---|---|
-| [`01_quickstart.py`](examples/01_quickstart.py) | tools, per-run context, both run modes, uniform tool errors |
-| [`02_file_first/`](examples/02_file_first) | file-first definitions, import refs, prompt substitution |
-| [`03_multi_agent.py`](examples/03_multi_agent.py) | agents as tools: sanitized failures, sources, token accounting |
-| [`04_act_with_approval.py`](examples/04_act_with_approval.py) | experimental network: deterministic routing, durable HITL approval |
-| [`05_evals.py`](examples/05_evals.py) | datasets, scorers, trajectory assertions |
-| [`06_sse_server.py`](examples/06_sse_server.py) | serving the event stream over SSE (FastAPI) |
-| [`07_ts_consumer.ts`](examples/07_ts_consumer.ts) | consuming the stream with `@shankit/client` |
-
 ## Documentation
 
-Full documentation lives in [`docs/`](docs/README.md):
+| Guide | Covers |
+|---|---|
+| [Getting started](docs/getting-started.md) | Install, a first agent, both run modes |
+| [Core concepts](docs/concepts.md) | The tool seam, per-run context, multi-agent, workspaces, models, errors |
+| [Agent files](docs/file-first.md) | Frontmatter reference and prompt substitution |
+| [Connectors](docs/connectors.md) | The OAuth connector contract and Composio |
+| [Durability & networks](docs/durability.md) | Checkpointers and the experimental graph |
+| [Evals](docs/evals.md) | Datasets, scorers, judging, trajectory checks |
+| [Design record](docs/design.md) | Why each piece is shaped the way it is |
 
-- **[Getting started](docs/getting-started.md)** — install, your first agent, both run modes.
-- **[Core concepts](docs/concepts.md)** — the tool seam, per-run context, run modes, multi-agent, workspaces, models, errors.
-- **[File-first definitions](docs/file-first.md)** — frontmatter reference, substitution, import vs. registry refs.
-- **[Connectors](docs/connectors.md)** — the OAuth connector contract, the connection lifecycle, Composio.
-- **[Durability & networks](docs/durability.md)** — the checkpointer contract and the experimental graph.
-- **[Evals](docs/evals.md)** — datasets, scorers, model-graded judging, trajectory assertions.
-- **[Design decision record](docs/design.md)** — why the framework is shaped this way (the living spec).
+Runnable scripts for each surface live in [`examples/`](examples).
 
-## How shankit compares
+## How it compares
 
-shankit's differentiation is **orientation**, not raw primitives — four things the leaders don't optimize for _together_: a vendor-neutral connector contract, observability as a user-facing surface, file-first definitions, and a paired Python-core + TypeScript-consumer SDK. On core agent features it aims for parity, not novelty.
-
-| Framework | Identity | Where shankit differs |
+| Framework | What it is | How Throukit differs |
 |---|---|---|
-| **LangGraph** | low-level graph runtime; state/checkpointing/HITL are the product | shankit keeps the graph an _experimental escape hatch_, not the headline; the default is agents-as-tools |
-| **Agno** | batteries-included multi-agent runtime (memory/RAG/knowledge in-box) | shankit deliberately punts memory/RAG/scheduling to your app |
-| **Pydantic AI** | type-safe, Python-first — the closest neighbour | shankit matches the core and adds the connector seam, file-first authoring, and the TS consumer |
-| **Inngest AgentKit** | TS-first networks welded to a durable engine | shankit's network borrows the router model but stays storage-agnostic and un-platformed |
+| **LangGraph** | A graph runtime; state and checkpoints are the product | Agents-as-tools is the default; the graph is an experimental escape hatch |
+| **Pydantic AI** | Type-safe, Python-first agents; the closest neighbour | Same core ideas, plus the connector seam, agent files and a TypeScript client |
+| **Agno** | A batteries-included runtime with memory and RAG built in | Leaves memory, RAG and scheduling to your app |
+| **Inngest AgentKit** | TypeScript-first agent networks tied to a durable engine | Borrows the router idea but stays storage-agnostic, with no platform to adopt |
 
-**shankit is _not_** a "better LangChain," a hosted platform, or opinionated about auth/memory/RAG/scheduling. Those are your app's concern; the framework leaves room without shipping an opinion. See [`docs/design.md`](docs/design.md) for the full landscape and rationale.
-
-## Development
-
-```bash
-uv sync --all-packages          # both packages editable + all dev tools, pinned by uv.lock
-
-uv run pytest packages          # core + connector tests, no network
-uv run ruff check packages scripts examples && uv run ruff format --check packages scripts examples
-uv run pyright                  # the types are part of the public contract
-uv run python scripts/generate_ts_events.py --check   # TS event types in sync
-cd packages/client-ts && npm ci && npm test
-```
-
-The test suite fakes the LLM, Composio, and network boundaries, so it runs anywhere without credentials.
-
-## Contributing
-
-Contributions are welcome. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev setup, the test/lint gates every PR must pass, and the one rule that governs new API: _the framework is never more than one real usage ahead of itself_ — no abstraction ships without a consumer that needs it today.
+Throukit is not a hosted platform, and it holds no opinion on auth, memory, RAG or scheduling.
 
 ## Project status
 
-**Alpha (`0.1.0`), pre-1.0, API not yet frozen.** shankit is being _harvested_ from a production product ([throu](https://throu.ai)) rather than designed in a vacuum — the public API freezes only after throu fully runs on it (see [design §12](docs/design.md#12-rollout-plan)). `shankit.experimental.*` ships with no stability guarantee; the namespace _is_ the flag.
+**Version `0.1.0`, before 1.0.** The API grows only when a real use needs it, and a minor release may still break it; [CHANGELOG.md](CHANGELOG.md) says when. Anything under `throukit.experimental` can change in any release.
 
-> **On the name:** `shankit` is a working title carried across the packages. A final name will be chosen before the first tagged release; renaming is a mechanical find-replace.
+Throukit makes no network calls of its own and collects no telemetry. OpenTelemetry spans go only to an exporter you set up.
 
-## Telemetry
+## Contributing
 
-**shankit collects no telemetry.** It makes no network calls of its own — only the LLM and tool calls you configure. Optional OpenTelemetry spans are emitted only to an exporter _you_ wire up.
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the one-command dev setup and the checks every PR must pass. Report security issues privately, as [SECURITY.md](SECURITY.md) describes.
 
 ## License
 
-[MIT](LICENSE)
-</content>
-</invoke>
+[MIT](LICENSE). Copyright Throu, Inc.

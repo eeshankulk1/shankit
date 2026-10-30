@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the TypeScript event types from the Python source of truth.
 
-The Python event models in ``shankit.events`` are the single source of truth
+The Python event models in ``throukit.events`` are the single source of truth
 for the streaming contract (design §8). This script emits
 ``packages/client-ts/src/events.generated.ts`` from their JSON schemas so the
 two sides cannot drift; CI regenerates and fails on any diff.
@@ -17,16 +17,16 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "packages" / "shankit" / "src"))
+sys.path.insert(0, str(REPO_ROOT / "packages" / "throukit" / "src"))
 
 from pydantic import TypeAdapter  # noqa: E402
-from shankit.events import AgentEvent  # noqa: E402
+from throukit.events import AgentEvent  # noqa: E402
 
 OUTPUT = REPO_ROOT / "packages" / "client-ts" / "src" / "events.generated.ts"
 
 HEADER = """\
 // GENERATED FILE — DO NOT EDIT.
-// Source of truth: packages/shankit/src/shankit/events.py
+// Source of truth: packages/throukit/src/throukit/events.py
 // Regenerate with: python scripts/generate_ts_events.py
 """
 
@@ -120,7 +120,7 @@ def generate() -> str:
         chunks.append(render_interface(name, defs[name], defs))
     union = " | ".join(event_names)
     chunks.append(
-        "/** Every event a shankit agent stream can emit. A stream ends with\n"
+        "/** Every event a throukit agent stream can emit. A stream ends with\n"
         " * exactly one terminal event: `done` or `error`. */\n"
         f"export type AgentEvent = {union};\n"
     )
