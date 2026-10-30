@@ -410,6 +410,24 @@ def test_ctrl_c_still_returns_the_report():
     assert report.exit_code == EXIT_STOPPED_EARLY
 
 
+async def test_cancelling_evaluate_stops_its_cases_and_stays_cancelled():
+    stopped = asyncio.Event()
+
+    async def target(case: Case) -> RunResult:
+        try:
+            await asyncio.sleep(30)
+        finally:
+            stopped.set()
+        raise AssertionError("not reached")
+
+    task = asyncio.create_task(evaluate(target, [Case(id="c")]))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert stopped.is_set()
+
+
 def test_a_sync_case_cut_short_by_ctrl_c_ends_inside_the_session():
     events: list[str] = []
 

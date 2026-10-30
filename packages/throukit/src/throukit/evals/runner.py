@@ -132,7 +132,10 @@ class EvalReport:
                 f"{k}={_fmt(v)}" for k, v in r.metrics.items() if k not in _RUNNER_METRICS
             )
             lines.append(f"  [{status}] {r.case_id}: {detail}")
-        lines += [f"  {b.status.upper()} {b.bar} (value {_fmt(b.value)})" for b in self.bars]
+        lines += [
+            f"  {b.status.upper()} {b.bar}" + ("" if b.value is None else f" (value {b.value:.4g})")
+            for b in self.bars
+        ]
         if self.stopped:
             lines.append(f"stopped early: {self.stopped}")
         return "\n".join(lines)
@@ -278,8 +281,10 @@ async def _run_cases(
         for task in in_flight:
             task.cancel()
         await asyncio.gather(*in_flight, return_exceptions=True)
-    report.results = [results[i] for i in sorted(results)]
-    report.not_run = [(c.id, t) for i, (c, t) in enumerate(work) if i not in results]
+        raise
+    finally:
+        report.results = [results[i] for i in sorted(results)]
+        report.not_run = [(c.id, t) for i, (c, t) in enumerate(work) if i not in results]
 
 
 def _new_report(suite: Suite, run: EvalRun, cases: list[Case]) -> EvalReport:
@@ -359,7 +364,7 @@ def run_suite(
     with metering(run.meter), suite.session(run), _pool(suite) as pool:
         try:
             asyncio.run(_run_cases(suite, run, work, pool, report, on_result))
-        except KeyboardInterrupt:  # Python 3.10: 3.11+ cancels `_run_cases` instead
+        except KeyboardInterrupt:
             report.stopped = "interrupted"
         _summarize(suite, report)
     return _finish(suite, run, report, started)
