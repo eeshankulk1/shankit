@@ -690,3 +690,19 @@ where the original text had a gap (flagged ⚠):
       patterns never see half a UUID. `rekey()` replaces a paid re-record
       after a scrub change. No mode switch or environment variable: the app
       picks record or replay.
+21. **The agent loop split into named pieces.** `Agent._loop` had grown to
+    ~400 lines mixing its state, context handling and control flow. It now
+    reads as the control flow alone: the state it carries across passes
+    (transcript, usage, texts, step numbering, clearing bookkeeping) and the
+    events that recording a pass or a tool result produces are
+    `_run_state.RunState`; what it does to keep a run inside the context
+    window (spilling, capping, clearing results and images, dropping
+    reasoning, answering calls that never ran) is plain functions in
+    `_context.py`. `agent.py` keeps `Agent`, `RunResult`, `ToolCallRecord`
+    and the public API; the loop's steering, context-trimming and
+    `final_result` handling are the `Agent` methods `_steer`,
+    `_trim_context` and `_take_output`. No public behavior or event order
+    changed. `Agent.as_tool`, the delegate
+    tool and clones now share one way to run a child agent under a tool
+    call (`_subagent.py`: `relay_steps` for the live steps, `run_sub_agent`
+    for the roll-up); each keeps its own failure text and policy.
