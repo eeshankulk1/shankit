@@ -263,8 +263,10 @@ checkpointer impossible to add later. Cheap now, expensive to retrofit.
 
 ### 7.2 Evaluation (built in v1)
 
-A lightweight harness for datasets, scorers, and trajectory assertions. Low API
-risk, high adoption value.
+A harness for evals that cost real money: suites of cases, repeated trials, pass
+bars, a hard spend cap per run and per session, reports to compare runs, and a
+CLI. Scorers and trajectory checks sit on top, so one agent and a list of cases
+is one call. See §14 entry 22.
 
 ### 7.3 Models
 
@@ -389,8 +391,8 @@ of itself.**
 
 ## 13. Open threads
 
-1. **Evaluation harness detail** - dataset/scorer/trajectory-assertion surface.
-   Lighter; can be settled during implementation.
+1. **Evaluation harness detail** - settled: suites, bars, budgets, scorers and
+   trajectory checks (§7.2, §14 entry 22).
 2. **TypeScript consumer SDK detail** - event-type generation, transport, the
    published API. Can come after the Python core stabilizes.
 3. **Name** - settled: Throukit (§14 entry 9).
@@ -707,3 +709,33 @@ where the original text had a gap (flagged ⚠):
     tool and clones now share one way to run a child agent under a tool
     call (`_subagent.py`: `relay_steps` for the live steps, `run_sub_agent`
     for the roll-up); each keeps its own failure text and policy.
+22. **One eval engine, taken from the first consumer.** Throu never used
+    `throukit.evals`: it had built its own harness, because datasets and
+    scorers don't answer the questions a paid eval raises (is this good
+    enough to ship, and what will it cost?). That harness replaces the old
+    runner; nothing shipped depended on it.
+    - A `Suite` is the unit: a list of cases and a `run_case` that returns
+      metrics, so an eval can be anything, not only an agent run. Scorers
+      and trajectory checks stay, on top: `AgentSuite` turns scores into
+      metrics, and `evaluate()` is that suite in one call. `Dataset` went:
+      cases are a list, and `load_cases()` reads JSONL.
+    - Bars are the verdict. A run's exit code comes from them, so a job
+      shows red without reading a report.
+    - The cap has three layers because each one failed alone in throu: a
+      case's estimate (don't start what won't fit), the meter (refuse the
+      next call), and the session cap (thirty sensible runs still add up).
+      The ledger is a file, so parallel runs and killed runs stay honest
+      with no server.
+    - Pricing is a function the consumer passes (`Price`), like
+      `Budget.cost`: the framework ships no price list to go stale.
+    - `run_suite` is sync at the top. A suite's `session`, `aggregate` and
+      `appendix` run with no event loop, so they may block or call
+      `asyncio.run`; cases run on one loop inside it, a sync `run_case` in a
+      worker thread. `evaluate` stays on the caller's loop, so a client the
+      caller already used keeps working.
+    - `Suite.concurrency` defaults to 1, which keeps a run's order fixed and
+      its spend easy to follow; `evaluate` keeps its old default of 4. A
+      charge from a bare thread carries no context, so per-case cost goes to
+      the case whose context it runs in, or the only case in flight.
+    - Who a run acts as stays out of the framework: `run.identity` is opaque,
+      like the per-run context, and `EvalCLI` hooks name and look it up.

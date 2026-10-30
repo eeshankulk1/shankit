@@ -20,9 +20,20 @@ anything under `throukit.experimental` may change in any release.
   The old names have no aliases.
 - `AnthropicModel(prompt_cache="5m" | "1h" | None)` replaces
   `cache_system_and_tools`.
+- `throukit.evals` has a new runner. `Case(name=...)` is now `Case(id=...)`,
+  `Case.metadata` is now `Case.tags`, `Case.input` may be any value,
+  `Dataset` is gone (cases are a list; `load_cases()` reads JSONL), and a
+  `CaseResult` holds `metrics` and `details` rather than `case`, `result` and
+  `scores`. `evaluate()` takes the list of cases and returns an `EvalReport`
+  as before; `scorers` and `trajectory` are unchanged.
 
 ### Added
 
+- Evals for real spend: `Suite` subclasses with repeated trials, pass bars
+  (`Bar.parse("rate(correct) >= 0.9")`), a hard budget (`Meter`,
+  `BudgetExceeded`), a cap across runs (`SessionCap`, POSIX only), Markdown and JSON
+  reports, and a command line (`EvalCLI`) with dry runs and exit codes.
+  `evaluate()` takes `bars=`, `trials=`, `budget_usd=` and `price=`.
 - `AnthropicModel` places its own prompt-cache breakpoints (the system
   prompt, the newest prompts, the last block and the shared prefix);
   `volatile=True` on a `TextBlock` or `ImageBlock` keeps per-turn content
