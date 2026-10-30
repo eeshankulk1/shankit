@@ -52,7 +52,7 @@ def test_anthropic_extra_request_kwargs_merge():
 def test_anthropic_kwargs_shape():
     kwargs = anthropic_kwargs(sample_request(temperature=0.2))
     assert kwargs["system"] == "be helpful"
-    assert kwargs["temperature"] == 0.2
+    assert kwargs["extra_body"] == {"temperature": 0.2}
     assert kwargs["messages"][0]["content"][0] == {"type": "text", "text": "hi"}
     assert kwargs["tools"][0]["input_schema"] == {"type": "object", "properties": {}}
     assert "tool_choice" not in kwargs  # auto is the provider default
@@ -290,7 +290,7 @@ def test_anthropic_reasoning_maps_to_thinking_and_effort():
     kwargs = anthropic_kwargs(sample_request(reasoning=Reasoning(effort="high"), temperature=0.3))
     assert kwargs["thinking"] == {"type": "adaptive"}
     assert kwargs["output_config"] == {"effort": "high"}
-    assert "temperature" not in kwargs  # thinking models reject sampling params
+    assert "extra_body" not in kwargs  # thinking models reject sampling params
 
     budget = anthropic_kwargs(sample_request(reasoning=Reasoning(budget_tokens=2048)))
     assert budget["thinking"] == {"type": "enabled", "budget_tokens": 2048}
@@ -298,7 +298,7 @@ def test_anthropic_reasoning_maps_to_thinking_and_effort():
 
     off = anthropic_kwargs(sample_request(reasoning=Reasoning(enabled=False), temperature=0.2))
     assert off["thinking"] == {"type": "disabled"}
-    assert off["temperature"] == 0.2
+    assert off["extra_body"] == {"temperature": 0.2}
 
     assert "thinking" not in anthropic_kwargs(sample_request())
 
@@ -356,7 +356,7 @@ def test_anthropic_temperature_only_where_the_model_takes_it(model, sent):
     kwargs = anthropic_kwargs(
         sample_request(model=model, reasoning=Reasoning(enabled=False), temperature=0.0)
     )
-    assert ("temperature" in kwargs) is sent
+    assert ("temperature" in kwargs.get("extra_body", {})) is sent
 
 
 def test_model_rules_prefixes_are_listed_most_specific_first():
@@ -642,3 +642,38 @@ def test_user_message_takes_text_or_blocks():
     assert user_message("hi").content == [TextBlock(text="hi")]
     blocks = [TextBlock(text="hi"), ImageBlock(data="QQ")]
     assert user_message(blocks).content == blocks
+
+
+def test_anthropic_drops_blank_text_blocks():
+    """The API refuses a whole request over one blank text block, and a
+    stored history is re-sent every turn: one blank reply would break every
+    later turn of the conversation."""
+    from shankit.messages import Message, TextBlock
+
+    request = ModelRequest(
+        model="claude-sonnet-4-5",
+        messages=[
+            Message(role="user", content=[TextBlock(text="hi")]),
+            Message(role="assistant", content=[TextBlock(text="  \n")]),
+            Message(role="user", content=[TextBlock(text=""), TextBlock(text="still there?")]),
+        ],
+    )
+    sent = anthropic_kwargs(request)["messages"]
+    assert sent == [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+        {"role": "user", "content": [{"type": "text", "text": "still there?"}]},
+    ]
+
+
+def test_registering_a_provider_returns_the_one_it_replaced():
+    from shankit.models.registry import get_provider
+
+    real = get_provider("openai")
+    assert real is not None
+    previous = register_provider("openai", lambda: None)  # type: ignore[arg-type,return-value]
+    try:
+        assert previous is real
+    finally:
+        register_provider("openai", real)
+    assert get_provider("openai") is real
+    assert get_provider("nope") is None

@@ -12,7 +12,7 @@ from .base import (
     model_error_for_status,
     wrap_sdk_errors,
 )
-from .registry import register_provider, resolve_model, shutdown
+from .registry import ProviderFactory, get_provider, register_provider, resolve_model, shutdown
 
 __all__ = [
     "ForcedTool",
@@ -22,8 +22,10 @@ __all__ = [
     "ModelResponseComplete",
     "ModelStreamEvent",
     "ModelTextDelta",
+    "ProviderFactory",
     "SystemPrompt",
     "default_stream_from_complete",
+    "get_provider",
     "map_sdk_error",
     "model_error_for_status",
     "register_provider",

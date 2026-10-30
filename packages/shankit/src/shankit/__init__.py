@@ -69,7 +69,14 @@ from .messages import (
     content_text,
     strip_reasoning,
 )
-from .models import ModelClient, ModelRequest, ModelResponse, register_provider, resolve_model
+from .models import (
+    ModelClient,
+    ModelRequest,
+    ModelResponse,
+    get_provider,
+    register_provider,
+    resolve_model,
+)
 from .models.base import Reasoning
 from .observe import StepDescriber, StepInfo, default_step_describer
 from .sse import format_sse, sse_stream
@@ -184,6 +191,7 @@ __all__ = [
     "describe_workspace_step",
     "evals",
     "format_sse",
+    "get_provider",
     "load_agent",
     "load_agents",
     "register",

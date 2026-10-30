@@ -623,3 +623,26 @@ where the original text had a gap (flagged ⚠):
       lands in `RunResult.artifacts` / `sources`: a tool can show a card
       before it returns (throu's `browser_task` card) without the structured
       path losing it.
+18. **Seam fixes from the first consumer's workarounds.** Each replaces
+    something throu had patched or copied:
+    - `ModelRequest.agent` names the agent making a call. Providers never
+      send it; a wrapping client (metering, test routing) reads it, instead
+      of patching the tracing span to learn the name.
+    - `Agent.stream()` keeps its tracing span current only while the run
+      works, never across a `yield`. A stream abandoned and closed from
+      another task no longer fails to detach an OpenTelemetry context.
+    - `Usage.by_model` splits a run's usage by model: the loop tags each
+      model call, and adding usages merges the split, so a sub-agent on a
+      cheaper model prices at its own rates (`per_model()`; untagged usage
+      reports under `None`). `Budget.cost` gets that cumulative usage, split
+      included, so its callback can price `per_model()` part by part.
+    - `get_provider()`, and `register_provider()` returning the factory it
+      replaced, make wrapping or swapping a provider public;
+      `shankit.testing` gains `use_model()` and `tool_call()`.
+    - `RunControl.send(on_delivered=)` and `undelivered()`;
+      `WorkspaceTools.bash_def` / `resolve_env` / `command_timeout` are
+      public hooks.
+    - `AnthropicModel` drops whitespace-only text blocks (the API refuses
+      the whole request over one, and a stored history re-sends it every
+      turn) and sends `temperature` in the request body, since SDK 1.0
+      removed the keyword.
