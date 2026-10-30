@@ -8,7 +8,14 @@ from pydantic import BaseModel, Field
 
 __all__ = ["Usage"]
 
-_COUNTS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "requests")
+_COUNTS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "cache_write_1h_tokens",
+    "requests",
+)
 
 
 class Usage(BaseModel):
@@ -30,6 +37,9 @@ class Usage(BaseModel):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    #: The part of ``cache_write_tokens`` cached for an hour rather than five
+    #: minutes (Anthropic's ``prompt_cache="1h"``), which costs more to write.
+    cache_write_1h_tokens: int = 0
     requests: int = 0
     by_model: dict[str, Usage] = Field(default_factory=dict)
 

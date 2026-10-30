@@ -31,9 +31,18 @@ __all__ = [
 ]
 
 
+#: ``volatile`` on a prompt block: the block is sent with this request only
+#: (or leaves the history later), so a provider that caches prompt prefixes
+#: ends the cached prefix before it. A note for this turn alone, a photo
+#: replayed for a few turns. Never serialized: a stored message replays
+#: without it.
+_VOLATILE = Field(default=False, exclude=True)
+
+
 class TextBlock(BaseModel):
     type: Literal["text"] = "text"
     text: str
+    volatile: bool = _VOLATILE
 
 
 class ImageBlock(BaseModel):
@@ -43,6 +52,7 @@ class ImageBlock(BaseModel):
     type: Literal["image"] = "image"
     media_type: str = "image/png"
     data: str
+    volatile: bool = _VOLATILE
 
 
 class ProviderBlock(BaseModel):
