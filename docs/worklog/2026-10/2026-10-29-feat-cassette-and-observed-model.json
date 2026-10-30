@@ -1,0 +1,1 @@
+{"date": "2026-10-29", "project": "shankit", "summary": "New ObservedModel (before/after hooks around every model call, with a ModelCall record of timing and outcome) and record/replay cassettes in shankit.testing, ported from throu.", "pr": 26, "why": "throu carried its own call metering, eval spend cap and cassette code; these are generic, so they move into the framework."}
