@@ -25,7 +25,6 @@ budget (or Ctrl-C) stopped the run early.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 from collections.abc import Mapping
 from decimal import Decimal
@@ -295,14 +294,8 @@ class EvalCLI:
                 f"eval {suite.name}: {len(cases)} case(s) x {trials} trial(s), "
                 f"budget ${budget:.2f}{shorter}, identity {who}"
             )
-            report = asyncio.run(
-                run_suite(
-                    suite,
-                    run,
-                    cases,
-                    metering=self.metering,
-                    on_result=_print_case(suite.columns),
-                )
+            report = run_suite(
+                suite, run, cases, metering=self.metering, on_result=_print_case(suite.columns)
             )
         except SuiteError as e:
             print(f"eval: {e}", file=sys.stderr)

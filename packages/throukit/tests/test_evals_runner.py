@@ -7,9 +7,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import threading
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import ClassVar
+from unittest import mock
 
 import pytest
 from throukit import Agent, RunResult, Usage, get_provider
@@ -116,8 +119,8 @@ def toy_run(budget: float = 1.0, trials: int = 1, **fields) -> EvalRun:
     )
 
 
-async def go(suite: Suite, run: EvalRun):
-    return await run_suite(suite, run, select_cases(suite, run.options, None))
+def go(suite: Suite, run: EvalRun):
+    return run_suite(suite, run, select_cases(suite, run.options, None))
 
 
 @pytest.fixture
@@ -137,12 +140,12 @@ RUN = ["run", "toy", "--account", "pro", "--budget", "1"]
 # ── bars, spend and the report ──────────────────────────────────────────
 
 
-async def test_bars_pass_spend_is_metered_and_the_report_is_written(tmp_path):
+def test_bars_pass_spend_is_metered_and_the_report_is_written(tmp_path):
     with use_model(
         ScriptedModel([Turn("yes it is", usage=spend(0.015)) for _ in range(3)])
     ) as model:
         suite = Toy()
-        report = await go(suite, toy_run(redact=("c1",)))
+        report = go(suite, toy_run(redact=("c1",)))
     model.assert_exhausted()
 
     assert [b.status for b in report.bars] == ["pass", "pass", "pass"]
@@ -215,12 +218,12 @@ def test_bars_read_rates_medians_maxima_and_counts_scoped_by_tags():
 # ── the budget cap ──────────────────────────────────────────────────────
 
 
-async def test_the_budget_stops_before_a_case_whose_estimate_would_cross_it():
+def test_the_budget_stops_before_a_case_whose_estimate_would_cross_it():
     turns = [Turn("yes", usage=spend(0.30)), Turn("yes", usage=spend(0.30))]
     with use_model(ScriptedModel(turns)) as model:
         suite = Toy()
         suite.case_estimate_usd = 0.45
-        report = await go(suite, toy_run(budget=1.0))
+        report = go(suite, toy_run(budget=1.0))
     model.assert_exhausted()
 
     # 0 + .45 and .30 + .45 fit under $1; .60 + .45 does not.
@@ -231,12 +234,12 @@ async def test_the_budget_stops_before_a_case_whose_estimate_would_cross_it():
     assert report.spend["spent_usd"] == pytest.approx(0.60)
 
 
-async def test_the_budget_hard_stops_when_actual_spend_passes_it():
+def test_the_budget_hard_stops_when_actual_spend_passes_it():
     # Estimates are far too low; the actual spend is what stops the run.
     turns = [Turn("yes", usage=spend(0.60)), Turn("yes", usage=spend(0.60))]
     with use_model(ScriptedModel(turns)) as model:
         suite = Toy()
-        report = await go(suite, toy_run(budget=1.0))
+        report = go(suite, toy_run(budget=1.0))
     model.assert_exhausted()
 
     assert suite.ran == ["c0", "c1"]
@@ -246,13 +249,13 @@ async def test_the_budget_hard_stops_when_actual_spend_passes_it():
     assert report.spend["spent_usd"] == pytest.approx(1.20)
 
 
-async def test_a_call_past_the_cap_is_refused_mid_case():
+def test_a_call_past_the_cap_is_refused_mid_case():
     # Two calls per case; the first spends past the cap, so the second is
     # never sent (the script has one turn: a second request would fail it).
     with use_model(ScriptedModel([Turn("yes", usage=spend(0.60))])) as model:
         suite = Toy()
         suite.calls = 2
-        report = await go(suite, toy_run(budget=0.50))
+        report = go(suite, toy_run(budget=0.50))
     model.assert_exhausted()
 
     assert len(model.requests) == 1
@@ -315,11 +318,11 @@ class Blocking(Suite):
         return {"said": result.output, "trial": run.trial}
 
 
-async def test_a_sync_suite_runs_off_the_loop_and_a_dict_is_its_metrics():
+def test_a_sync_suite_runs_off_the_loop_and_a_dict_is_its_metrics():
     turns = [Turn("hi", usage=spend(0.01)) for _ in range(4)]
     with use_model(ScriptedModel(turns)):
         suite = Blocking()
-        report = await go(suite, toy_run(trials=2))
+        report = go(suite, toy_run(trials=2))
     assert [r.metrics["said"] for r in report.results] == ["hi"] * 4
     # Trial-major: every case once, then again.
     assert [(r.case_id, r.trial, r.metrics["trial"]) for r in report.results] == [
@@ -355,25 +358,25 @@ class Parallel(Suite):
         return {"ok": True}
 
 
-async def test_cases_run_side_by_side_each_with_its_own_cost():
+def test_cases_run_side_by_side_each_with_its_own_cost():
     suite = Parallel()
-    report = await go(suite, toy_run(budget=5))
+    report = go(suite, toy_run(budget=5))
     assert suite.peak == 2
     assert [r.case_id for r in report.results] == ["c0", "c1", "c2", "c3"]
     assert [r.metrics["cost_usd"] for r in report.results] == [0.01, 0.02, 0.03, 0.04]
 
 
-async def test_the_budget_check_counts_the_cases_in_flight():
+def test_the_budget_check_counts_the_cases_in_flight():
     suite = Parallel()
     suite.step = 0.10
     # After c0, $0.10 is spent and c1's $0.10 estimate is in flight: c2's
     # estimate on top of those crosses $0.25.
-    report = await go(suite, toy_run(budget=0.25))
+    report = go(suite, toy_run(budget=0.25))
     assert report.stopped.startswith("not started: c2")
     assert report.not_run == [("c2", 1), ("c3", 1)]
 
 
-async def test_a_cap_refusal_marks_every_case_it_cut_short_when_cases_overlap():
+def test_a_cap_refusal_marks_every_case_it_cut_short_when_cases_overlap():
     class Racing(Parallel):
         async def run_case(self, case, run):
             await asyncio.sleep(0)
@@ -382,12 +385,12 @@ async def test_a_cap_refusal_marks_every_case_it_cut_short_when_cases_overlap():
 
     suite = Racing()
     suite.case_estimate_usd = 0.0
-    report = await go(suite, toy_run(budget=0))
+    report = go(suite, toy_run(budget=0))
     assert [r.status for r in report.results] == ["budget", "budget"]
     assert report.stopped.startswith("hard stop after c")
 
 
-async def test_cancelling_a_run_still_returns_the_report():
+def test_ctrl_c_still_returns_the_report():
     class Stuck(Suite):
         name = "stuck"
 
@@ -396,20 +399,78 @@ async def test_cancelling_a_run_still_returns_the_report():
 
         async def run_case(self, case, run):
             if case.id == "stuck":
-                task.cancel()
+                signal.raise_signal(signal.SIGINT)
                 await asyncio.sleep(30)
             return {"ok": True}
 
-    suite = Stuck()
-    task = asyncio.create_task(go(suite, toy_run()))
-    report = await task
+    report = go(Stuck(), toy_run())
     assert report.stopped == "interrupted"
     assert [r.case_id for r in report.results] == ["done"]
     assert report.not_run == [("stuck", 1), ("never", 1)]
     assert report.exit_code == EXIT_STOPPED_EARLY
 
 
-async def test_a_failing_case_never_ends_the_run_and_a_failing_summary_still_reports():
+def test_a_sync_case_cut_short_by_ctrl_c_ends_inside_the_session():
+    events: list[str] = []
+
+    class Slow(Suite):
+        name = "slow"
+
+        def cases(self, options):
+            return [Case(id="slow")]
+
+        @contextmanager
+        def session(self, run):
+            yield
+            events.append("session closed")
+
+        def run_case(self, case, run):
+            threading.Event().wait(0.05)
+            events.append("case ended")
+            return {"ok": True}
+
+    original = asyncio.wrap_future
+
+    def interrupted(future):
+        os.kill(os.getpid(), signal.SIGINT)
+        return original(future)
+
+    with mock.patch("asyncio.wrap_future", interrupted):
+        report = go(Slow(), toy_run())
+    assert report.stopped == "interrupted"
+    assert events == ["case ended", "session closed"]
+
+
+def test_the_hooks_run_with_no_event_loop():
+    seen: list[str] = []
+
+    class Hooked(Suite):
+        name = "hooked"
+
+        def cases(self, options):
+            return [Case(id="a")]
+
+        @contextmanager
+        def session(self, run):
+            seen.append(asyncio.run(asyncio.sleep(0, "session")))
+            yield
+
+        async def run_case(self, case, run):
+            return {"ok": True}
+
+        def aggregate(self, results):
+            seen.append(asyncio.run(asyncio.sleep(0, "aggregate")))
+            return {}
+
+        def appendix(self):
+            return asyncio.run(asyncio.sleep(0, "appendix"))
+
+    report = go(Hooked(), toy_run())
+    assert seen == ["session", "aggregate"]
+    assert report.appendix == "appendix"
+
+
+def test_a_failing_case_never_ends_the_run_and_a_failing_summary_still_reports():
     class Flaky(Suite):
         name = "flaky"
 
@@ -424,7 +485,7 @@ async def test_a_failing_case_never_ends_the_run_and_a_failing_summary_still_rep
         def aggregate(self, results):
             raise ValueError("bad summary")
 
-    report = await go(Flaky(), toy_run())
+    report = go(Flaky(), toy_run())
     assert [r.status for r in report.results] == ["error", "ok"]
     assert report.results[0].error == "RuntimeError: model down"
     assert report.aggregates["cases_errored"] == 1
@@ -712,7 +773,7 @@ def test_capped_gives_back_what_it_did_not_spend_however_it_ends(cap):
         meter.charge_usage(TOY_ID, spend(0.25))
     assert cap.status().spent_usd == Decimal("0.25")
 
-    with pytest.raises(BudgetExceeded), cap.capped("script", 1, price=price) as meter:
+    with pytest.raises(BudgetExceeded), cap.capped("script", 1, price=price) as meter:  # noqa: PT012
         meter.charge_usage(TOY_ID, spend(1))
         meter.guard("next call")
     assert cap.status().spent_usd == Decimal("1.25")

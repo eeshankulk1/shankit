@@ -95,7 +95,7 @@ A tool reports a failure the model should see with `ToolError("...")`. Any other
 | **Agent files** | Define agents as Markdown with frontmatter, in the same shape as Claude Code subagents ([guide](docs/file-first.md)) |
 | **Run control** | Cancel, message, budget and checkpoint a run from outside it (`RunControl`) |
 | **Durability** | `Checkpointer` contract on your storage; powers human approval pauses ([guide](docs/durability.md)) |
-| **Evals** | Datasets, scorers, model-graded judging and checks on the tools an agent called ([guide](docs/evals.md)) |
+| **Evals** | Suites with repeated runs, pass bars and a hard spend cap, plus scorers, model-graded judging and checks on the tools an agent called ([guide](docs/evals.md)) |
 | **Connectors** | [`throukit-connectors`](packages/throukit-connectors): OAuth connection lifecycle with an official Composio implementation ([guide](docs/connectors.md)) |
 | **TypeScript** | [`@throukit/client`](packages/client-ts): typed SSE consumer whose event types are generated from the Python models, so CI catches any drift |
 | **Models** | Anthropic and OpenAI behind one `ModelClient`, `register_provider()` for more, and `ObservedModel` to meter, log or cap every call |
@@ -147,7 +147,7 @@ for await (const event of streamEvents("/agents/support/stream", { method: "POST
 | [Agent files](docs/file-first.md) | Frontmatter reference and prompt substitution |
 | [Connectors](docs/connectors.md) | The OAuth connector contract and Composio |
 | [Durability & networks](docs/durability.md) | Checkpointers and the experimental graph |
-| [Evals](docs/evals.md) | Datasets, scorers, judging, trajectory checks |
+| [Evals](docs/evals.md) | Suites, pass bars, spend caps, scorers, trajectory checks |
 | [Design record](docs/design.md) | Why each piece is shaped the way it is |
 
 Runnable scripts for each surface live in [`examples/`](examples).

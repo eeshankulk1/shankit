@@ -17,7 +17,7 @@ reference you can reach for when you need it.
 | **[File-first definitions](file-first.md)** | Authoring agents as Markdown files: the full frontmatter reference, prompt substitution, and import-vs-registry references. |
 | **[Connectors](connectors.md)** | The opt-in OAuth integration layer: the connector contract, the connection lifecycle, and the official Composio implementation. |
 | **[Durability & networks](durability.md)** | The `Checkpointer` contract, its shipped stores, and the experimental router-driven network for code-controlled flow and human-in-the-loop pauses. |
-| **[Evals](evals.md)** | Datasets, scorers, model-graded judging, and trajectory assertions over `RunResult`. |
+| **[Evals](evals.md)** | Suites with repeated runs, pass bars and a hard spend cap; scorers, model-graded judging, and trajectory checks over `RunResult`. |
 
 ## Reference
 

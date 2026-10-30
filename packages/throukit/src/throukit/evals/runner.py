@@ -282,24 +282,10 @@ async def _run_cases(
     report.not_run = [(c.id, t) for i, (c, t) in enumerate(work) if i not in results]
 
 
-async def run_suite(
-    suite: Suite,
-    run: EvalRun,
-    cases: list[Case],
-    *,
-    metering: Metering = metered,
-    on_result: Optional[OnResult] = None,
-) -> EvalReport:
-    """Run ``cases`` x ``run.trials`` under the budget; evaluate the bars.
-
-    Whatever happens after money starts moving (a crash in a summary, Ctrl-C),
-    the report comes back, so it still gets written. ``metering`` installs the
-    meter: pass your own to cover paid calls the provider registry doesn't
-    see. ``on_result`` hears each case as it ends: ``(done, total, result)``.
-    """
-    if not suite.concurrency >= 1:
+def _new_report(suite: Suite, run: EvalRun, cases: list[Case]) -> EvalReport:
+    if suite.concurrency < 1:
         raise ValueError("Suite.concurrency must be at least 1")
-    report = EvalReport(
+    return EvalReport(
         suite=suite.name,
         description=suite.description,
         identity=_identity_label(suite, run),
@@ -312,33 +298,83 @@ async def run_suite(
         columns=list(suite.columns),
         started_at=_now(),
     )
-    meter = run.meter
-    started = time.monotonic()
-    # The pool closes first: a sync case still running after Ctrl-C ends
-    # inside the meter and the session.
-    with (
-        metering(meter),
-        suite.session(run),
-        ThreadPoolExecutor(max_workers=suite.concurrency, thread_name_prefix="eval-case") as pool,
-    ):
-        await _run_cases(suite, run, plan(cases, run.trials), pool, report, on_result)
-        # Budget-cut cases are incomplete: they are listed, not measured.
-        measured = [r for r in report.results if r.status != "budget"]
-        report.aggregates = {
-            "cases_run": len(report.results),
-            "cases_errored": sum(1 for r in report.results if r.status == "error"),
-        }
-        try:
-            report.aggregates.update(suite.aggregate(measured))
-            report.appendix = suite.appendix()
-        except Exception as e:  # the spend still gets reported
-            report.appendix = f"(summary failed: {type(e).__name__}: {e})"
-    report.bars = [bar.check(measured, report.aggregates) for bar in suite.bars]
-    report.spend = meter.summary()
+
+
+def _pool(suite: Suite) -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=suite.concurrency, thread_name_prefix="eval-case")
+
+
+def _summarize(suite: Suite, report: EvalReport) -> None:
+    measured = _measured(report)
+    report.aggregates = {
+        "cases_run": len(report.results),
+        "cases_errored": sum(1 for r in report.results if r.status == "error"),
+    }
+    try:
+        report.aggregates.update(suite.aggregate(measured))
+        report.appendix = suite.appendix()
+    except Exception as e:  # the spend still gets reported
+        report.appendix = f"(summary failed: {type(e).__name__}: {e})"
+
+
+def _measured(report: EvalReport) -> list[CaseResult]:
+    # Budget-cut cases are incomplete: they are listed, not measured.
+    return [r for r in report.results if r.status != "budget"]
+
+
+def _finish(suite: Suite, run: EvalRun, report: EvalReport, started: float) -> EvalReport:
+    report.bars = [bar.check(_measured(report), report.aggregates) for bar in suite.bars]
+    report.spend = run.meter.summary()
     report.declared_models = sorted(set(report.declared_models) | set(report.spend["models"]))
     report.finished_at = _now()
     report.duration_s = round(time.monotonic() - started, 1)
     return report
+
+
+def run_suite(
+    suite: Suite,
+    run: EvalRun,
+    cases: list[Case],
+    *,
+    metering: Metering = metered,
+    on_result: Optional[OnResult] = None,
+) -> EvalReport:
+    """Run ``cases`` x ``run.trials`` under the budget; evaluate the bars.
+
+    Blocks until the run ends; from async code, call it with
+    ``asyncio.to_thread``. The suite's ``session``, ``aggregate`` and
+    ``appendix`` run with no event loop, so they may block or call
+    ``asyncio.run``.
+
+    Whatever happens after money starts moving (a crash in a summary, Ctrl-C),
+    the report comes back, so it still gets written. ``metering`` installs the
+    meter: pass your own to cover paid calls the provider registry doesn't
+    see. ``on_result`` hears each case as it ends: ``(done, total, result)``.
+    """
+    report = _new_report(suite, run, cases)
+    started = time.monotonic()
+    work = plan(cases, run.trials)
+    # The pool closes first: a sync case still running after Ctrl-C ends
+    # inside the meter and the session.
+    with metering(run.meter), suite.session(run), _pool(suite) as pool:
+        try:
+            asyncio.run(_run_cases(suite, run, work, pool, report, on_result))
+        except KeyboardInterrupt:  # Python 3.10: 3.11+ cancels `_run_cases` instead
+            report.stopped = "interrupted"
+        _summarize(suite, report)
+    return _finish(suite, run, report, started)
+
+
+async def _run_on_this_loop(
+    suite: Suite, run: EvalRun, cases: list[Case], metering: Metering
+) -> EvalReport:
+    report = _new_report(suite, run, cases)
+    started = time.monotonic()
+    work = plan(cases, run.trials)
+    with metering(run.meter), suite.session(run), _pool(suite) as pool:
+        await _run_cases(suite, run, work, pool, report, None)
+        _summarize(suite, report)
+    return _finish(suite, run, report, started)
 
 
 def dry_run(suite: Suite, run: EvalRun, cases: list[Case]) -> str:
@@ -394,7 +430,7 @@ async def evaluate(
     max_concurrency: int = 4,
 ) -> EvalReport:
     """Run every case against ``target`` and score the results: an `AgentSuite`
-    in one call.
+    in one call, on the caller's event loop.
 
     ``target`` is an `Agent` (run with each case's input and context) or any
     async callable ``(case) -> RunResult``. A case whose run raises is
@@ -413,9 +449,5 @@ async def evaluate(
     )
     meter = Meter(None if budget_usd is None else Decimal(str(budget_usd)), price=price)
     run = EvalRun(suite=name, meter=meter, trials=trials)
-    return await run_suite(
-        suite,
-        run,
-        select_cases(suite, {}, None),
-        metering=metered if price is not None else nullcontext,
-    )
+    metering = metered if price is not None else nullcontext
+    return await _run_on_this_loop(suite, run, select_cases(suite, {}, None), metering)

@@ -48,6 +48,7 @@ class Suite:
     ``run_case`` may be sync or async. An async one runs on the runner's event
     loop; a sync one runs in a worker thread, so it may block or call
     ``asyncio.run``. It returns a `CaseResult`, or a plain dict of metrics.
+    The other hooks run with no event loop (`run_suite`).
     """
 
     name: str = ""
