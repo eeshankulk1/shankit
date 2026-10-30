@@ -1,7 +1,7 @@
 from conftest import FakeModel, final_result_response, text_response, tool_call_response
 from pydantic import BaseModel
 from throukit import Agent, tool
-from throukit.evals import Case, Dataset, evaluate, exact_match, output_contains, trajectory
+from throukit.evals import Case, evaluate, exact_match, load_cases, output_contains, trajectory
 from throukit.evals.scorers import Score, llm_judge
 
 
@@ -25,10 +25,9 @@ async def test_evaluate_agent_with_scorers():
             final_result_response({"label": "spam"}),
         ]
     )
-    dataset = Dataset(cases=[Case(name="spammy", input="win money", expected={"label": "spam"})])
     report = await evaluate(
         agent,
-        dataset,
+        [Case(id="spammy", input="win money", expected={"label": "spam"})],
         scorers=[exact_match, trajectory.used_tool("classify"), trajectory.no_tool_errors],
         output_type=Verdict,
     )
@@ -39,20 +38,15 @@ async def test_evaluate_agent_with_scorers():
 
 async def test_failing_and_erroring_cases():
     async def target(case):
-        if case.name == "boom":
+        if case.id == "boom":
             raise RuntimeError("model down")
         agent = scripted_agent([text_response("looks like ham")])
         return await agent.run(case.input, output_type=str)
 
-    dataset = Dataset(
-        cases=[
-            Case(name="boom", input="x"),
-            Case(name="wrong", input="y", expected="spam"),
-        ]
-    )
-    report = await evaluate(target, dataset, scorers=[output_contains()])
+    cases = [Case(id="boom", input="x"), Case(id="wrong", input="y", expected="spam")]
+    report = await evaluate(target, cases, scorers=[output_contains()])
     assert report.pass_rate == 0.0
-    statuses = {r.case.name: (r.error, r.passed) for r in report.results}
+    statuses = {r.case_id: (r.error, r.passed) for r in report.results}
     assert statuses["boom"][0] is not None
     assert statuses["wrong"] == (None, False)
 
@@ -67,9 +61,9 @@ def test_output_contains_scores_answer_not_transcript():
         text="I'll check whether this is spam.\n\nham",
         usage=Usage(),
     )
-    score = output_contains("spam")(Case(name="c", input="x"), result)
+    score = output_contains("spam")(Case(id="c", input="x"), result)
     assert not score.passed
-    assert output_contains("ham")(Case(name="c", input="x"), result).passed
+    assert output_contains("ham")(Case(id="c", input="x"), result).passed
 
 
 async def test_custom_scorer_shapes():
@@ -86,16 +80,16 @@ async def test_custom_scorer_shapes():
 
     report = await evaluate(
         agent,
-        Dataset(cases=[Case(name="c", input="x")]),
+        [Case(id="c", input="x")],
         scorers=[boolean_scorer, float_scorer, full_scorer],
         output_type=str,
     )
-    scores = report.results[0].scores
-    assert scores[0].name == "boolean_scorer"
-    assert scores[0].passed is True
-    assert scores[1].value == 0.5
-    assert scores[1].passed is None
-    assert scores[2].reason == "looked good"
+    result = report.results[0]
+    assert result.metrics["boolean_scorer"] is True
+    assert result.metrics["float_scorer"] == 0.5
+    assert result.metrics["custom"] is True
+    assert result.metrics["custom_score"] == 0.9
+    assert result.details["scores"][2]["reason"] == "looked good"
 
 
 async def test_trajectory_assertions():
@@ -107,7 +101,7 @@ async def test_trajectory_assertions():
         ]
     )
     result = await agent.run("go", output_type=str)
-    case = Case(name="c", input="go")
+    case = Case(id="c", input="go")
 
     assert trajectory.used_tool("classify")(case, result).passed
     assert not trajectory.did_not_use_tool("classify")(case, result).passed
@@ -123,17 +117,18 @@ async def test_llm_judge_scorer():
     scorer = llm_judge("Is the answer correct?", model="fake-judge", model_client=judge_client)
     agent = scripted_agent([text_response("the answer")])
     result = await agent.run("q", output_type=str)
-    score = await scorer(Case(name="c", input="q"), result)
+    score = await scorer(Case(id="c", input="q"), result)
     assert score.value == 0.9
     assert score.passed is True
     assert score.reason == "faithful and complete"
 
 
-def test_dataset_jsonl(tmp_path):
+def test_load_cases_from_jsonl(tmp_path):
     path = tmp_path / "cases.jsonl"
     path.write_text(
-        '{"name": "a", "input": "x", "expected": "y"}\n{"input": "z"}\n', encoding="utf-8"
+        '{"id": "a", "input": "x", "expected": "y", "tags": {"group": "g"}}\n\n{"input": "z"}\n',
+        encoding="utf-8",
     )
-    dataset = Dataset.from_jsonl(path)
-    assert len(dataset) == 2
-    assert dataset.cases[1].name == "case_1"
+    cases = load_cases(path)
+    assert [c.id for c in cases] == ["a", "case_2"]
+    assert cases[0].tags == {"group": "g"}

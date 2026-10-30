@@ -83,6 +83,11 @@ def get_provider(name: str) -> Optional[ProviderFactory]:
     return _PROVIDERS.get(name)
 
 
+def _provider_names() -> list[str]:
+    _default_factories()
+    return list(_PROVIDERS)
+
+
 def _default_factories() -> None:
     if "anthropic" not in _PROVIDERS:
         from .anthropic import AnthropicModel

@@ -116,7 +116,7 @@ async def test_custom_client_needs_only_complete(make_agent):
 def test_evals_namespace_is_importable_off_the_package():
     import throukit
 
-    assert throukit.evals.Dataset is not None
+    assert throukit.evals.Suite is not None
 
 
 async def test_frontmatter_value_containing_dashes(tmp_path):
